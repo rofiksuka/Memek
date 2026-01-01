@@ -1,3 +1,10 @@
+import sys
+# === MANTRA ANTI-CRASH WINDOWS (JANGAN DIHAPUS) ===
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except AttributeError:
+    pass
+
 import asyncio
 import re
 import httpx
@@ -8,18 +15,25 @@ import os
 import traceback
 from urllib.parse import urljoin
 from datetime import datetime, timedelta
-# New library added
+
+# --- LIBRARY BARU BUAT LOGIN (SELENIUM) ---
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+
+# --- TELEGRAM LIB ---
 from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram import Update
 
 # --- Configuration (Fill in your details) ---
-# Your Telegram Bot Token here. You can get it from BotFather.
-# Example: YOUR_BOT_TOKEN = "1234567890:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-YOUR_BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI" # <--- This line needs to be changed
+YOUR_BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI"
 
 # ==================== New Addition: Multiple Admin IDs ====================
-# Add your and other admins' Telegram User IDs to the list below
-ADMIN_CHAT_IDS = ["8446734557"] # Example: ["YOUR_ADMIN_USER_ID_1", "YOUR_ADMIN_USER_ID_2"]
+ADMIN_CHAT_IDS = ["8446734557"]
 # =================================================================
 
 # Old chat IDs kept for the first run
@@ -32,13 +46,12 @@ SMS_API_ENDPOINT = "https://www.ivasms.com/portal/sms/received/getsms"
 USERNAME = "rofik7244@gmail.com"
 PASSWORD = "GanzJB123"
 
-# Reduced interval to 2 seconds to keep the bot responsive and reduce server load
-POLLING_INTERVAL_SECONDS = 2 
-# STATE_FILE name changed
+# Interval dinaikin dikit biar Chrome gak jebol (5 detik aman)
+POLLING_INTERVAL_SECONDS = 5
 STATE_FILE = "processed_sms_ids.json" 
-CHAT_IDS_FILE = "chat_ids.json" # New file for saving chat IDs
+CHAT_IDS_FILE = "chat_ids.json"
 
-# List of countries
+# List of countries (FULL ORIGINAL)
 COUNTRY_FLAGS = {
     "Afghanistan": "🇦🇫", "Albania": "🇦🇱", "Algeria": "🇩🇿", "Andorra": "🇦🇩", "Angola": "🇦🇴",
     "Argentina": "🇦🇷", "Armenia": "🇦🇲", "Australia": "🇦🇺", "Austria": "🇦🇹", "Azerbaijan": "🇦🇿",
@@ -71,7 +84,7 @@ COUNTRY_FLAGS = {
     "Yemen": "🇾🇪", "Zambia": "🇿🇲", "Zimbabwe": "🇿🇼", "Unknown Country": "🏴‍☠️"
 }
 
-# Service Keywords (for identifying service from SMS text)
+# Service Keywords (FULL ORIGINAL)
 SERVICE_KEYWORDS = {
     "Facebook": ["facebook"],
     "Google": ["google", "gmail"],
@@ -100,7 +113,6 @@ SERVICE_KEYWORDS = {
     "Blizzard": ["blizzard"],
     "Foodpanda": ["foodpanda"],
     "Pathao": ["pathao"],
-    # Newly added service keywords
     "Messenger": ["messenger", "meta"],
     "Gmail": ["gmail", "google"],
     "YouTube": ["youtube", "google"],
@@ -156,10 +168,10 @@ SERVICE_KEYWORDS = {
     "Line": ["line"],
     "WeChat": ["wechat"],
     "VK": ["vk", "vkontakte"],
-    "Unknown": ["unknown"] # Fallback, likely won't have specific keywords
+    "Unknown": ["unknown"]
 }
 
-# Service Emojis (for display in Telegram messages)
+# Service Emojis (FULL ORIGINAL)
 SERVICE_EMOJIS = {
     "Telegram": "📩", "WhatsApp": "🟢", "Facebook": "📘", "Instagram": "📸", "Messenger": "💬",
     "Google": "🔍", "Gmail": "✉️", "YouTube": "▶️", "Twitter": "🐦", "X": "❌",
@@ -195,7 +207,7 @@ def save_chat_ids(chat_ids):
     with open(CHAT_IDS_FILE, 'w') as f:
         json.dump(chat_ids, f, indent=4)
 
-# --- New Telegram Command Handlers ---
+# --- New Telegram Command Handlers (TEKS ORIGINAL SESUAI REQUEST) ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if str(user_id) in ADMIN_CHAT_IDS:
@@ -278,6 +290,7 @@ def save_processed_id(sms_id):
     processed_ids.add(sms_id)
     with open(STATE_FILE, 'w') as f: json.dump(list(processed_ids), f)
 
+# --- SCRAPING LOGIC ---
 async def fetch_sms_from_api(client: httpx.AsyncClient, headers: dict, csrf_token: str):
     all_messages = []
     try:
@@ -286,7 +299,11 @@ async def fetch_sms_from_api(client: httpx.AsyncClient, headers: dict, csrf_toke
         from_date_str, to_date_str = start_date.strftime('%m/%d/%Y'), today.strftime('%m/%d/%Y')
         first_payload = {'from': from_date_str, 'to': to_date_str, '_token': csrf_token}
         summary_response = await client.post(SMS_API_ENDPOINT, headers=headers, data=first_payload)
-        summary_response.raise_for_status()
+        
+        # Checking if request was successful
+        if summary_response.status_code != 200:
+            return []
+
         summary_soup = BeautifulSoup(summary_response.text, 'html.parser')
         group_divs = summary_soup.find_all('div', {'class': 'pointer'})
         if not group_divs: return []
@@ -333,12 +350,8 @@ async def fetch_sms_from_api(client: httpx.AsyncClient, headers: dict, csrf_toke
                         # Using 'sms_text' instead of 'full_sms_text'
                         all_messages.append({"id": unique_id, "time": date_str, "number": phone_number, "country": country_name, "flag": flag, "service": service, "code": code, "full_sms": sms_text}) 
         return all_messages
-    except httpx.RequestError as e:
-        print(f"❌ Network issue (httpx): {e}")
-        return []
     except Exception as e:
-        print(f"❌ Error fetching or processing API data: {e}")
-        traceback.print_exc()
+        print(f"❌ Error scraping: {e}")
         return []
 
 async def send_telegram_message(context: ContextTypes.DEFAULT_TYPE, chat_id: str, message_data: dict):
@@ -365,38 +378,81 @@ async def send_telegram_message(context: ContextTypes.DEFAULT_TYPE, chat_id: str
     except Exception as e:
         print(f"❌ Error sending message to chat ID {chat_id}: {e}")
 
+# ================= LOGIN PAKE CHROME (SELENIUM) =================
+def get_headers_via_selenium():
+    chrome_options = Options()
+    chrome_options.add_argument("--headless") # Gak munculin jendela chrome (ringan)
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--log-level=3")
+
+    # Install driver otomatis
+    service = ChromeService(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+
+    try:
+        print("ℹ️ Membuka Chrome buat Login...")
+        driver.get(LOGIN_URL)
+        
+        # Isi Email
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "email")))
+        driver.find_element(By.NAME, "email").send_keys(USERNAME)
+        
+        # Isi Password
+        driver.find_element(By.NAME, "password").send_keys(PASSWORD)
+        
+        # Klik Login
+        driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
+        
+        # Tunggu masuk dashboard
+        print("⏳ Sedang login...")
+        WebDriverWait(driver, 15).until(EC.url_contains("portal"))
+        print("✅ Login Chrome SUKSES! Mengambil token...")
+
+        # Ambil Cookies & CSRF
+        selenium_cookies = driver.get_cookies()
+        
+        # Ambil CSRF Token dari page source
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        csrf_meta = soup.find('meta', {'name': 'csrf-token'})
+        csrf_token = csrf_meta['content'] if csrf_meta else None
+
+        # Convert cookies buat HTTPX
+        cookies_jar = httpx.Cookies()
+        for cookie in selenium_cookies:
+            cookies_jar.set(cookie['name'], cookie['value'], domain=cookie['domain'])
+
+        return cookies_jar, csrf_token, driver.current_url
+
+    except Exception as e:
+        print(f"❌ Gagal Login Chrome: {e}")
+        return None, None, None
+    finally:
+        driver.quit()
+
 # --- Main Job or Task ---
 async def check_sms_job(context: ContextTypes.DEFAULT_TYPE):
     print(f"\n--- [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] Checking for new messages ---") # Using UTC time
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    
+    # 1. Login Pake Chrome (Sekali di awal job)
+    cookies, csrf, dashboard_url = await asyncio.to_thread(get_headers_via_selenium)
+    
+    if not cookies or not csrf:
+        print("❌ Skip cycle ini, login gagal.")
+        return
+
+    # 2. Pake data login Chrome buat nembak API (Pake HTTPX biar cepet)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': dashboard_url,
+        'X-CSRF-TOKEN': csrf,
+        'X-Requested-With': 'XMLHttpRequest'
+    }
     
     # Instructing httpx client to follow redirects
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(cookies=cookies, timeout=30.0, follow_redirects=True) as client:
         try:
-            print("ℹ️ Attempting to log in...")
-            login_page_res = await client.get(LOGIN_URL, headers=headers)
-            soup = BeautifulSoup(login_page_res.text, 'html.parser')
-            token_input = soup.find('input', {'name': '_token'})
-            login_data = {'email': USERNAME, 'password': PASSWORD}
-            if token_input: login_data['_token'] = token_input['value']
-
-            login_res = await client.post(LOGIN_URL, data=login_data, headers=headers)
-            
-            # A 302 redirect can be a sign of successful login, so checking URL instead of raise_for_status()
-            if "login" in str(login_res.url):
-                print("❌ Login failed. Check username/password.")
-                return
-
-            print("✅ Login successful!")
-            dashboard_soup = BeautifulSoup(login_res.text, 'html.parser')
-            csrf_token_meta = dashboard_soup.find('meta', {'name': 'csrf-token'})
-            if not csrf_token_meta:
-                print("❌ New CSRF token not found.")
-                return
-            csrf_token = csrf_token_meta.get('content')
-
-            headers['Referer'] = str(login_res.url)
-            messages = await fetch_sms_from_api(client, headers, csrf_token)
+            messages = await fetch_sms_from_api(client, headers, csrf)
             if not messages: 
                 print("✔️ No new messages found.")
                 return
@@ -417,7 +473,7 @@ async def check_sms_job(context: ContextTypes.DEFAULT_TYPE):
                 print(f"✅ Total {new_messages_found} new messages sent to Telegram.")
 
         except httpx.RequestError as e:
-            print(f"❌ Network or login issue (httpx): {e}")
+            print(f"❌ Network issue (httpx): {e}")
         except Exception as e:
             print(f"❌ A problem occurred in the main process: {e}")
             traceback.print_exc()
@@ -455,3 +511,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
