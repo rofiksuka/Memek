@@ -8,261 +8,56 @@ import os
 import traceback
 from urllib.parse import urljoin
 from datetime import datetime, timedelta
-# New library added
 from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram import Update
 
-# --- Configuration (Fill in your details) ---
-# Your Telegram Bot Token here. You can get it from BotFather.
-# Example: YOUR_BOT_TOKEN = "1234567890:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-YOUR_BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI" # <--- This line needs to be changed
-
-# ==================== New Addition: Multiple Admin IDs ====================
-# Add your and other admins' Telegram User IDs to the list below
-ADMIN_CHAT_IDS = ["8446734557"] # Example: ["YOUR_ADMIN_USER_ID_1", "YOUR_ADMIN_USER_ID_2"]
-# =================================================================
-
-# Old chat IDs kept for the first run
-INITIAL_CHAT_IDS = ["8446734557"] 
-
-LOGIN_URL = "https://www.ivasms.com/login"
-BASE_URL = "https://www.ivasms.com/"
-SMS_API_ENDPOINT = "https://www.ivasms.com/portal/sms/received/getsms"
+# --- CONFIGURATION ---
+YOUR_BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI"
+ADMIN_CHAT_IDS = ["8446734557"]
+INITIAL_CHAT_IDS = ["8446734557"]
 
 USERNAME = "rofik7244@gmail.com"
 PASSWORD = "GanzJB123"
 
-# Reduced interval to 2 seconds to keep the bot responsive and reduce server load
-POLLING_INTERVAL_SECONDS = 2 
-# STATE_FILE name changed
-STATE_FILE = "processed_sms_ids.json" 
-CHAT_IDS_FILE = "chat_ids.json" # New file for saving chat IDs
+# --- SYSTEM SETTINGS ---
+LOGIN_URL = "https://www.ivasms.com/login"
+BASE_URL = "https://www.ivasms.com/"
+SMS_API_ENDPOINT = "https://www.ivasms.com/portal/sms/received/getsms"
+POLLING_INTERVAL_SECONDS = 2
+STATE_FILE = "processed_sms_ids.json"
+CHAT_IDS_FILE = "chat_ids.json"
 
-# List of countries
+# --- DATA ---
 COUNTRY_FLAGS = {
-    "Afghanistan": "🇦🇫", "Albania": "🇦🇱", "Algeria": "🇩🇿", "Andorra": "🇦🇩", "Angola": "🇦🇴",
-    "Argentina": "🇦🇷", "Armenia": "🇦🇲", "Australia": "🇦🇺", "Austria": "🇦🇹", "Azerbaijan": "🇦🇿",
-    "Bahrain": "🇧🇭", "Bangladesh": "🇧🇩", "Belarus": "🇧🇾", "Belgium": "🇧🇪", "Benin": "🇧🇯",
-    "Bhutan": "🇧🇹", "Bolivia": "🇧🇴", "Brazil": "🇧🇷", "Bulgaria": "🇧🇬", "Burkina Faso": "🇧🇫",
-    "Cambodia": "🇰🇭", "Cameroon": "🇨🇲", "Canada": "🇨🇦", "Chad": "🇹🇩", "Chile": "🇨 ",
-    "China": "🇨🇳", "Colombia": "🇨🇴", "Congo": "🇨🇬", "Croatia": "🇭🇷", "Cuba": "🇨🇺",
-    "Cyprus": "🇨🇾", "Czech Republic": "🇨🇿", "Denmark": "🇩🇰", "Egypt": "🇪🇬", "Estonia": "🇪🇪",
-    "Ethiopia": "🇪🇹", "Finland": "🇫🇮", "France": "🇫🇷", "Gabon": "🇬🇦", "Gambia": "🇬🇲",
-    "Georgia": "🇬🇪", "Germany": "🇩🇪", "Ghana": "🇬🇭", "Greece": "🇬🇷", "Guatemala": "🇬🇹",
-    "Guinea": "🇬🇳", "Haiti": "🇭🇹", "Honduras": "🇭🇳", "Hong Kong": "🇭🇰", "Hungary": "🇭🇺",
-    "Iceland": "🇮🇸", "India": "🇮🇳", "Indonesia": "🇮🇩", "Iran": "🇮🇷", "Iraq": "🇮🇶",
-    "Ireland": "🇮🇪", "Israel": "🇮🇱", "Italy": "🇮🇹", "IVORY COAST": "🇨🇮", "Ivory Coast": "🇨🇮", "Jamaica": "🇯🇲",
-    "Japan": "🇯🇵", "Jordan": "🇯🇴", "Kazakhstan": "🇰🇿", "Kenya": "🇰🇪", "Kuwait": "🇰🇼",
-    "Kyrgyzstan": "🇰🇬", "Laos": "🇱🇦", "Latvia": "🇱🇻", "Lebanon": "🇱🇧", "Liberia": "🇱🇷",
-    "Libya": "🇱🇾", "Lithuania": "🇱🇹", "Luxembourg": "🇱🇺", "Madagascar": "🇲🇬", "Malaysia": "🇲🇾",
-    "Mali": "🇲🇱", "Malta": "🇲🇹", "Mexico": "🇲🇽", "Moldova": "🇲🇩", "Monaco": "🇲🇨",
-    "Mongolia": "🇲🇳", "Montenegro": "🇲🇪", "Morocco": "🇲🇦", "Mozambique": "🇲🇿", "Myanmar": "🇲🇲",
-    "Namibia": "🇳🇦", "Nepal": "🇳🇵", "Netherlands": "🇳🇱", "New Zealand": "🇳🇿", "Nicaragua": "🇳🇮",
-    "Niger": "🇳🇪", "Nigeria": "🇳🇬", "North Korea": "🇰🇵", "North Macedonia": "🇲🇰", "Norway": "🇳🇴",
-    "Oman": "🇴🇲", "Pakistan": "🇵🇰", "Panama": "🇵🇦", "Paraguay": "🇵🇾", "Peru": "🇵🇪",
-    "Philippines": "🇵🇭", "Poland": "🇵🇱", "Portugal": "🇵🇹", "Qatar": "🇶🇦", "Romania": "🇷🇴",
-    "Russia": "🇷🇺", "Rwanda": "🇷🇼", "Saudi Arabia": "🇸🇦", "Senegal": "🇸🇳", "Serbia": "🇷🇸",
-    "Sierra Leone": "🇸🇱", "Singapore": "🇸🇬", "Slovakia": "🇸🇰", "Slovenia": "🇸🇮", "Somalia": "🇸🇴",
-    "South Africa": "🇿🇦", "South Korea": "🇰🇷", "Spain": "🇪🇸", "Sri Lanka": "🇱🇰", "Sudan": "🇸🇩",
-    "Sweden": "🇸🇪", "Switzerland": "🇨🇭", "Syria": "🇸🇾", "Taiwan": "🇹🇼", "Tajikistan": "🇹🇯",
-    "Tanzania": "🇹🇿", "Thailand": "🇹🇭", "TOGO": "🇹🇬", "Tunisia": "🇹🇳", "Turkey": "🇹🇷",
-    "Turkmenistan": "🇹🇲", "Uganda": "🇺🇬", "Ukraine": "🇺🇦", "United Arab Emirates": "🇦🇪", "United Kingdom": "🇬🇧",
-    "United States": "🇺🇸", "Uruguay": "🇺🇾", "Uzbekistan": "🇺🇿", "Venezuela": "🇻🇪", "Vietnam": "🇻🇳",
-    "Yemen": "🇾🇪", "Zambia": "🇿🇲", "Zimbabwe": "🇿🇼", "Unknown Country": "🏴‍☠️"
+    "Afghanistan": "🇦🇫", "Indonesia": "🇮🇩", "United States": "🇺🇸", "United Kingdom": "🇬🇧",
+    "Malaysia": "🇲🇾", "Singapore": "🇸🇬", "Vietnam": "🇻🇳", "Thailand": "🇹🇭", "Philippines": "🇵🇭",
+    "India": "🇮🇳", "China": "🇨🇳", "Russia": "🇷🇺", "Brazil": "🇧🇷", "Unknown Country": "🏴‍☠️"
 }
 
-# Service Keywords (for identifying service from SMS text)
 SERVICE_KEYWORDS = {
-    "Facebook": ["facebook"],
-    "Google": ["google", "gmail"],
-    "WhatsApp": ["whatsapp"],
-    "Telegram": ["telegram"],
-    "Instagram": ["instagram"],
-    "Amazon": ["amazon"],
-    "Netflix": ["netflix"],
-    "LinkedIn": ["linkedin"],
-    "Microsoft": ["microsoft", "outlook", "live.com"],
-    "Apple": ["apple", "icloud"],
-    "Twitter": ["twitter"],
-    "Snapchat": ["snapchat"],
-    "TikTok": ["tiktok"],
-    "Discord": ["discord"],
-    "Signal": ["signal"],
-    "Viber": ["viber"],
-    "IMO": ["imo"],
-    "PayPal": ["paypal"],
-    "Binance": ["binance"],
-    "Uber": ["uber"],
-    "Bolt": ["bolt"],
-    "Airbnb": ["airbnb"],
-    "Yahoo": ["yahoo"],
-    "Steam": ["steam"],
-    "Blizzard": ["blizzard"],
-    "Foodpanda": ["foodpanda"],
-    "Pathao": ["pathao"],
-    # Newly added service keywords
-    "Messenger": ["messenger", "meta"],
-    "Gmail": ["gmail", "google"],
-    "YouTube": ["youtube", "google"],
-    "X": ["x", "twitter"],
-    "eBay": ["ebay"],
-    "AliExpress": ["aliexpress"],
-    "Alibaba": ["alibaba"],
-    "Flipkart": ["flipkart"],
-    "Outlook": ["outlook", "microsoft"],
-    "Skype": ["skype", "microsoft"],
-    "Spotify": ["spotify"],
-    "iCloud": ["icloud", "apple"],
-    "Stripe": ["stripe"],
-    "Cash App": ["cash app", "square cash"],
-    "Venmo": ["venmo"],
-    "Zelle": ["zelle"],
-    "Wise": ["wise", "transferwise"],
-    "Coinbase": ["coinbase"],
-    "KuCoin": ["kucoin"],
-    "Bybit": ["bybit"],
-    "OKX": ["okx"],
-    "Huobi": ["huobi"],
-    "Kraken": ["kraken"],
-    "MetaMask": ["metamask"],
-    "Epic Games": ["epic games", "epicgames"],
-    "PlayStation": ["playstation", "psn"],
-    "Xbox": ["xbox", "microsoft"],
-    "Twitch": ["twitch"],
-    "Reddit": ["reddit"],
-    "ProtonMail": ["protonmail", "proton"],
-    "Zoho": ["zoho"],
-    "Quora": ["quora"],
-    "StackOverflow": ["stackoverflow"],
-    "LinkedIn": ["linkedin"],
-    "Indeed": ["indeed"],
-    "Upwork": ["upwork"],
-    "Fiverr": ["fiverr"],
-    "Glassdoor": ["glassdoor"],
-    "Airbnb": ["airbnb"],
-    "Booking.com": ["booking.com", "booking"],
-    "Careem": ["careem"],
-    "Swiggy": ["swiggy"],
-    "Zomato": ["zomato"],
-    "McDonald's": ["mcdonalds", "mcdonald's"],
-    "KFC": ["kfc"],
-    "Nike": ["nike"],
-    "Adidas": ["adidas"],
-    "Shein": ["shein"],
-    "OnlyFans": ["onlyfans"],
-    "Tinder": ["tinder"],
-    "Bumble": ["bumble"],
-    "Grindr": ["grindr"],
-    "Line": ["line"],
-    "WeChat": ["wechat"],
-    "VK": ["vk", "vkontakte"],
-    "Unknown": ["unknown"] # Fallback, likely won't have specific keywords
+    "WhatsApp": ["whatsapp"], "Telegram": ["telegram"], "Facebook": ["facebook"],
+    "Google": ["google", "gmail"], "Instagram": ["instagram"], "TikTok": ["tiktok"],
+    "Shopee": ["shopee"], "Dana": ["dana"], "Gojek": ["gojek"], "Grab": ["grab"],
+    "Ovo": ["ovo"], "Tokopedia": ["tokopedia"], "Lazada": ["lazada"], "Bibit": ["bibit"],
+    "Netflix": ["netflix"], "Twitter": ["twitter", "x code"], "Unknown": ["unknown"]
 }
 
-# Service Emojis (for display in Telegram messages)
 SERVICE_EMOJIS = {
-    "Telegram": "📩", "WhatsApp": "🟢", "Facebook": "📘", "Instagram": "📸", "Messenger": "💬",
-    "Google": "🔍", "Gmail": "✉️", "YouTube": "▶️", "Twitter": "🐦", "X": "❌",
-    "TikTok": "🎵", "Snapchat": "👻", "Amazon": "🛒", "eBay": "📦", "AliExpress": "📦",
-    "Alibaba": "🏭", "Flipkart": "📦", "Microsoft": "🪟", "Outlook": "📧", "Skype": "📞",
-    "Netflix": "🎬", "Spotify": "🎶", "Apple": "🍏", "iCloud": "☁️", "PayPal": "💰",
-    "Stripe": "💳", "Cash App": "💵", "Venmo": "💸", "Zelle": "🏦", "Wise": "🌐",
-    "Binance": "🪙", "Coinbase": "🪙", "KuCoin": "🪙", "Bybit": "📈", "OKX": "🟠",
-    "Huobi": "🔥", "Kraken": "🐙", "MetaMask": "🦊", "Discord": "🗨️", "Steam": "🎮",
-    "Epic Games": "🕹️", "PlayStation": "🎮", "Xbox": "🎮", "Twitch": "📺", "Reddit": "👽",
-    "Yahoo": "🟣", "ProtonMail": "🔐", "Zoho": "📬", "Quora": "❓", "StackOverflow": "🧑‍💻",
-    "LinkedIn": "💼", "Indeed": "📋", "Upwork": "🧑‍💻", "Fiverr": "💻", "Glassdoor": "🔎",
-    "Airbnb": "🏠", "Booking.com": "🛏️", "Uber": "🚗", "Lyft": "🚕", "Bolt": "🚖",
-    "Careem": "🚗", "Swiggy": "🍔", "Zomato": "🍽️", "Foodpanda": "🍱",
-    "McDonald's": "🍟", "KFC": "🍗", "Nike": "👟", "Adidas": "👟", "Shein": "👗",
-    "OnlyFans": "🔞", "Tinder": "🔥", "Bumble": "🐝", "Grindr": "😈", "Signal": "🔐",
-    "Viber": "📞", "Line": "💬", "WeChat": "💬", "VK": "🌐", "Unknown": "❓"
+    "WhatsApp": "🟢", "Telegram": "🔵", "Google": "🔴", "Facebook": "📘", "Unknown": "❓"
 }
 
-# --- Chat ID Management Functions ---
+# --- FUNCTIONS ---
 def load_chat_ids():
     if not os.path.exists(CHAT_IDS_FILE):
-        with open(CHAT_IDS_FILE, 'w') as f:
-            json.dump(INITIAL_CHAT_IDS, f)
+        with open(CHAT_IDS_FILE, 'w') as f: json.dump(INITIAL_CHAT_IDS, f)
         return INITIAL_CHAT_IDS
     try:
-        with open(CHAT_IDS_FILE, 'r') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
-        return INITIAL_CHAT_IDS
+        with open(CHAT_IDS_FILE, 'r') as f: return json.load(f)
+    except: return INITIAL_CHAT_IDS
 
 def save_chat_ids(chat_ids):
-    with open(CHAT_IDS_FILE, 'w') as f:
-        json.dump(chat_ids, f, indent=4)
+    with open(CHAT_IDS_FILE, 'w') as f: json.dump(chat_ids, f, indent=4)
 
-# --- New Telegram Command Handlers ---
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if str(user_id) in ADMIN_CHAT_IDS:
-        await update.message.reply_text(
-            "Welcome Admin!\n"
-            "You can use the following commands:\n"
-            "/add_chat <chat_id> - Add a new chat ID\n"
-            "/remove_chat <chat_id> - Remove a chat ID\n"
-            "/list_chats - List all chat IDs"
-        )
-    else:
-        await update.message.reply_text("Sorry, you are not authorized to use this bot.")
-
-async def add_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if str(user_id) not in ADMIN_CHAT_IDS:
-        await update.message.reply_text("Sorry, only admins can use this command.")
-        return
-    try:
-        new_chat_id = context.args[0]
-        chat_ids = load_chat_ids()
-        if new_chat_id not in chat_ids:
-            chat_ids.append(new_chat_id)
-            save_chat_ids(chat_ids)
-            await update.message.reply_text(f"✅ Chat ID {new_chat_id} successfully added.")
-        else:
-            await update.message.reply_text(f"⚠️ This chat ID ({new_chat_id}) is already in the list.")
-    except (IndexError, ValueError):
-        await update.message.reply_text("❌ Invalid format. Use: /add_chat <chat_id>")
-
-async def remove_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if str(user_id) not in ADMIN_CHAT_IDS:
-        await update.message.reply_text("Sorry, only admins can use this command.")
-        return
-    try:
-        chat_id_to_remove = context.args[0]
-        chat_ids = load_chat_ids()
-        if chat_id_to_remove in chat_ids:
-            chat_ids.remove(chat_id_to_remove)
-            save_chat_ids(chat_ids)
-            await update.message.reply_text(f"✅ Chat ID {chat_id_to_remove} successfully removed.")
-        else:
-            await update.message.reply_text(f"🤔 This chat ID ({chat_id_to_remove}) was not found in the list.")
-    except (IndexError, ValueError):
-        await update.message.reply_text("❌ Invalid format. Use: /remove_chat <chat_id>")
-
-async def list_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if str(user_id) not in ADMIN_CHAT_IDS:
-        await update.message.reply_text("Sorry, only admins can use this command.")
-        return
-    
-    chat_ids = load_chat_ids()
-    if chat_ids:
-        message = "📜 Currently registered chat IDs are:\n"
-        for cid in chat_ids:
-            message += f"- `{escape_markdown(str(cid))}`\n"
-        try:
-            await update.message.reply_text(message, parse_mode='MarkdownV2')
-        except Exception as e:
-            plain_message = "📜 Currently registered chat IDs are:\n" + "\n".join(map(str, chat_ids))
-            await update.message.reply_text(plain_message)
-    else:
-        await update.message.reply_text("No chat IDs registered.")
-
-# --- Core Functions ---
 def escape_markdown(text):
     escape_chars = r'\_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
@@ -271,187 +66,160 @@ def load_processed_ids():
     if not os.path.exists(STATE_FILE): return set()
     try:
         with open(STATE_FILE, 'r') as f: return set(json.load(f))
-    except (json.JSONDecodeError, FileNotFoundError): return set()
+    except: return set()
 
 def save_processed_id(sms_id):
     processed_ids = load_processed_ids()
     processed_ids.add(sms_id)
     with open(STATE_FILE, 'w') as f: json.dump(list(processed_ids), f)
 
+# --- COMMANDS ---
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = str(update.message.from_user.id)
+    if uid in ADMIN_CHAT_IDS:
+        await update.message.reply_text("✅ Bot Ready Bos! Monitoring Ivasms...")
+    else:
+        await update.message.reply_text("❌ Lu siapa? Bukan admin.")
+
+# --- CORE LOGIC ---
 async def fetch_sms_from_api(client: httpx.AsyncClient, headers: dict, csrf_token: str):
     all_messages = []
     try:
-        today = datetime.utcnow() # Using UTC time
-        start_date = today - timedelta(days=1) # Data for the last 24 hours
-        from_date_str, to_date_str = start_date.strftime('%m/%d/%Y'), today.strftime('%m/%d/%Y')
-        first_payload = {'from': from_date_str, 'to': to_date_str, '_token': csrf_token}
-        summary_response = await client.post(SMS_API_ENDPOINT, headers=headers, data=first_payload)
-        summary_response.raise_for_status()
-        summary_soup = BeautifulSoup(summary_response.text, 'html.parser')
-        group_divs = summary_soup.find_all('div', {'class': 'pointer'})
+        today = datetime.utcnow()
+        start_date = today - timedelta(days=1)
+        from_str, to_str = start_date.strftime('%m/%d/%Y'), today.strftime('%m/%d/%Y')
+        
+        # 1. Get Summary
+        first_payload = {'from': from_str, 'to': to_str, '_token': csrf_token}
+        summary_res = await client.post(SMS_API_ENDPOINT, headers=headers, data=first_payload)
+        summary_res.raise_for_status()
+        
+        soup = BeautifulSoup(summary_res.text, 'html.parser')
+        group_divs = soup.find_all('div', {'class': 'pointer'})
         if not group_divs: return []
         
-        group_ids = [re.search(r"getDetials\('(.+?)'\)", div.get('onclick', '')).group(1) for div in group_divs if re.search(r"getDetials\('(.+?)'\)", div.get('onclick', ''))]
-        numbers_url = urljoin(BASE_URL, "portal/sms/received/getsms/number")
+        group_ids = [re.search(r"getDetials\('(.+?)'\)", d.get('onclick','')).group(1) for d in group_divs if "getDetials" in d.get('onclick','')]
+        
+        # 2. Loop Country Groups
+        num_url = urljoin(BASE_URL, "portal/sms/received/getsms/number")
         sms_url = urljoin(BASE_URL, "portal/sms/received/getsms/number/sms")
 
-        for group_id in group_ids:
-            numbers_payload = {'start': from_date_str, 'end': to_date_str, 'range': group_id, '_token': csrf_token}
-            numbers_response = await client.post(numbers_url, headers=headers, data=numbers_payload)
-            numbers_soup = BeautifulSoup(numbers_response.text, 'html.parser')
-            number_divs = numbers_soup.select("div[onclick*='getDetialsNumber']")
-            if not number_divs: continue
-            phone_numbers = [div.text.strip() for div in number_divs]
+        for gid in group_ids:
+            # Get Numbers
+            num_payload = {'start': from_str, 'end': to_str, 'range': gid, '_token': csrf_token}
+            num_res = await client.post(num_url, headers=headers, data=num_payload)
+            num_soup = BeautifulSoup(num_res.text, 'html.parser')
+            phones = [d.text.strip() for d in num_soup.select("div[onclick*='getDetialsNumber']")]
             
-            for phone_number in phone_numbers:
-                sms_payload = {'start': from_date_str, 'end': to_date_str, 'Number': phone_number, 'Range': group_id, '_token': csrf_token}
-                sms_response = await client.post(sms_url, headers=headers, data=sms_payload)
-                sms_soup = BeautifulSoup(sms_response.text, 'html.parser')
-                final_sms_cards = sms_soup.find_all('div', class_='card-body')
+            for phone in phones:
+                # Get SMS
+                sms_payload = {'start': from_str, 'end': to_str, 'Number': phone, 'Range': gid, '_token': csrf_token}
+                final_res = await client.post(sms_url, headers=headers, data=sms_payload)
+                sms_cards = BeautifulSoup(final_res.text, 'html.parser').find_all('div', class_='card-body')
                 
-                for card in final_sms_cards:
-                    sms_text_p = card.find('p', class_='mb-0')
-                    if sms_text_p:
-                        sms_text = sms_text_p.get_text(separator='\n').strip()
-                        date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') # Using UTC time
-                        
-                        country_name_match = re.match(r'([a-zA-Z\s]+)', group_id)
-                        if country_name_match: country_name = country_name_match.group(1).strip()
-                        else: country_name = group_id.strip()
-                        
-                        service = "Unknown"
-                        lower_sms_text = sms_text.lower()
-                        for service_name, keywords in SERVICE_KEYWORDS.items():
-                            if any(keyword in lower_sms_text for keyword in keywords):
-                                service = service_name
-                                break
-                        code_match = re.search(r'(\d{3}-\d{3})', sms_text) or re.search(r'\b(\d{4,8})\b', sms_text)
-                        code = code_match.group(1) if code_match else "N/A"
-                        unique_id = f"{phone_number}-{sms_text}"
-                        flag = COUNTRY_FLAGS.get(country_name, "🏴‍☠️")
-                        
-                        # Using 'sms_text' instead of 'full_sms_text'
-                        all_messages.append({"id": unique_id, "time": date_str, "number": phone_number, "country": country_name, "flag": flag, "service": service, "code": code, "full_sms": sms_text}) 
+                for card in sms_cards:
+                    p = card.find('p', class_='mb-0')
+                    if not p: continue
+                    text = p.get_text(separator='\n').strip()
+                    
+                    # Parsir Data
+                    unique_id = f"{phone}-{text[:20]}" 
+                    
+                    service = "Unknown"
+                    lower_text = text.lower()
+                    for s_name, kws in SERVICE_KEYWORDS.items():
+                        if any(k in lower_text for k in kws): 
+                            service = s_name; break
+                    
+                    code_match = re.search(r'(\d{3}-\d{3})', text) or re.search(r'\b(\d{4,8})\b', text)
+                    code = code_match.group(1) if code_match else "N/A"
+                    
+                    c_name = re.match(r'([a-zA-Z\s]+)', gid).group(1).strip() if re.match(r'([a-zA-Z\s]+)', gid) else "Unknown"
+                    flag = COUNTRY_FLAGS.get(c_name, "🏴‍☠️")
+                    
+                    all_messages.append({
+                        "id": unique_id, "time": datetime.utcnow().strftime('%H:%M:%S'), 
+                        "number": phone, "country": c_name, "flag": flag, 
+                        "service": service, "code": code, "full_sms": text
+                    })
         return all_messages
-    except httpx.RequestError as e:
-        print(f"❌ Network issue (httpx): {e}")
-        return []
+
     except Exception as e:
-        print(f"❌ Error fetching or processing API data: {e}")
-        traceback.print_exc()
+        print(f"❌ Error Fetching: {e}")
         return []
 
-async def send_telegram_message(context: ContextTypes.DEFAULT_TYPE, chat_id: str, message_data: dict):
+async def send_to_tele(context, chat_id, msg):
     try:
-        time_str, number_str = message_data.get("time", "N/A"), message_data.get("number", "N/A")
-        country_name, flag_emoji = message_data.get("country", "N/A"), message_data.get("flag", "🏴‍☠️")
-        service_name, code_str = message_data.get("service", "N/A"), message_data.get("code", "N/A")
-        full_sms_text = message_data.get("full_sms", "N/A")
-        
-        # Add service emoji
-        service_emoji = SERVICE_EMOJIS.get(service_name, "❓") # If service not found, show '❓'
+        emo = SERVICE_EMOJIS.get(msg['service'], "🔔")
+        txt = (f"{emo} *OTP MASUK BOS!*\n\n"
+               f"📞 *Nomor:* `{escape_markdown(msg['number'])}`\n"
+               f"🔑 *Kode:* `{escape_markdown(msg['code'])}`\n"
+               f"🏢 *Service:* {escape_markdown(msg['service'])}\n"
+               f"🌍 *Negara:* {escape_markdown(msg['country'])} {msg['flag']}\n\n"
+               f"💬 *Pesan:*\n`{escape_markdown(msg['full_sms'])}`")
+        await context.bot.send_message(chat_id=chat_id, text=txt, parse_mode='MarkdownV2')
+    except Exception as e: print(f"❌ Gagal kirim ke Tele: {e}")
 
-        # Message format reverted to previous state with extra spacing
-        full_message = (f"🔔 *You have successfully received OTP*\n\n" 
-                        f"📞 *Number:* `{escape_markdown(number_str)}`\n" 
-                        f"🔑 *Code:* `{escape_markdown(code_str)}`\n" 
-                        f"🏆 *Service:* {service_emoji} {escape_markdown(service_name)}\n" 
-                        f"🌎 *Country:* {escape_markdown(country_name)} {flag_emoji}\n" 
-                        f"⏳ *Time:* `{escape_markdown(time_str)}`\n\n" 
-                        f"💬 *Message:*\n" 
-                        f"```\n{full_sms_text}\n```")
-        
-        await context.bot.send_message(chat_id=chat_id, text=full_message, parse_mode='MarkdownV2')
-    except Exception as e:
-        print(f"❌ Error sending message to chat ID {chat_id}: {e}")
-
-# --- Main Job or Task ---
 async def check_sms_job(context: ContextTypes.DEFAULT_TYPE):
-    print(f"\n--- [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] Checking for new messages ---") # Using UTC time
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-    
-    # Instructing httpx client to follow redirects
+    print(f"\n--- [{datetime.utcnow().strftime('%H:%M:%S')}] Cek Pesan Baru... ---")
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'}
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         try:
-            print("ℹ️ Attempting to log in...")
-            login_page_res = await client.get(LOGIN_URL, headers=headers)
-            soup = BeautifulSoup(login_page_res.text, 'html.parser')
+            # 1. LOGIN
+            login_pg = await client.get(LOGIN_URL, headers=headers)
+            soup = BeautifulSoup(login_pg.text, 'html.parser')
             token_input = soup.find('input', {'name': '_token'})
-            login_data = {'email': USERNAME, 'password': PASSWORD}
-            if token_input: login_data['_token'] = token_input['value']
-
-            login_res = await client.post(LOGIN_URL, data=login_data, headers=headers)
             
-            # A 302 redirect can be a sign of successful login, so checking URL instead of raise_for_status()
+            data = {'email': USERNAME, 'password': PASSWORD}
+            if token_input: data['_token'] = token_input['value']
+
+            login_res = await client.post(LOGIN_URL, data=data, headers=headers)
+            
             if "login" in str(login_res.url):
-                print("❌ Login failed. Check username/password.")
+                print("❌ Login Gagal! Cek User/Pass.")
                 return
 
-            print("✅ Login successful!")
-            dashboard_soup = BeautifulSoup(login_res.text, 'html.parser')
-            csrf_token_meta = dashboard_soup.find('meta', {'name': 'csrf-token'})
-            if not csrf_token_meta:
-                print("❌ New CSRF token not found.")
+            # 2. AMBIL CSRF TOKEN DASHBOARD
+            dash_soup = BeautifulSoup(login_res.text, 'html.parser')
+            meta_csrf = dash_soup.find('meta', {'name': 'csrf-token'})
+            if not meta_csrf:
+                print("❌ Gagal ambil Token CSRF baru.")
                 return
-            csrf_token = csrf_token_meta.get('content')
-
+            csrf = meta_csrf['content']
             headers['Referer'] = str(login_res.url)
-            messages = await fetch_sms_from_api(client, headers, csrf_token)
-            if not messages: 
-                print("✔️ No new messages found.")
+
+            # 3. SCRAPING SMS
+            msgs = await fetch_sms_from_api(client, headers, csrf)
+            if not msgs:
+                print("💤 Belum ada pesan baru.")
                 return
-
-            processed_ids = load_processed_ids()
-            chat_ids_to_send = load_chat_ids()
-            new_messages_found = 0
             
-            for msg in reversed(messages):
-                if msg["id"] not in processed_ids:
-                    new_messages_found += 1
-                    print(f"✔️ New message found from: {msg['number']}.")
-                    for chat_id in chat_ids_to_send:
-                        await send_telegram_message(context, chat_id, msg)
-                    save_processed_id(msg["id"])
+            # 4. FILTER & KIRIM
+            processed = load_processed_ids()
+            chats = load_chat_ids()
             
-            if new_messages_found > 0:
-                print(f"✅ Total {new_messages_found} new messages sent to Telegram.")
+            count = 0
+            for m in reversed(msgs):
+                if m['id'] not in processed:
+                    count += 1
+                    print(f"🔥 OTP BARU: {m['code']} ({m['service']})")
+                    for cid in chats:
+                        await send_to_tele(context, cid, m)
+                    save_processed_id(m['id'])
+            
+            if count > 0: print(f"✅ Sukses kirim {count} pesan ke Telegram.")
 
-        except httpx.RequestError as e:
-            print(f"❌ Network or login issue (httpx): {e}")
         except Exception as e:
-            print(f"❌ A problem occurred in the main process: {e}")
-            traceback.print_exc()
+            print(f"❌ Error Loop: {e}")
 
-# --- Main part to start the bot ---
 def main():
-    print("🚀 iVasms to Telegram Bot is starting...")
-
-    # Not checking for 'YOUR_SECOND_ADMIN_ID_HERE' anymore,
-    # as you have correctly provided the IDs in ADMIN_CHAT_IDS.
-    # A warning will be shown if the ADMIN_CHAT_IDS list is empty.
-    if not ADMIN_CHAT_IDS:
-        print("\n!!! 🔴 WARNING: You have not correctly set admin IDs in your ADMIN_CHAT_IDS list. !!!\n")
-        return
-
-    # Create the bot application
-    application = Application.builder().token(YOUR_BOT_TOKEN).build()
-
-    # Add command handlers
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("add_chat", add_chat_command))
-    application.add_handler(CommandHandler("remove_chat", remove_chat_command))
-    application.add_handler(CommandHandler("list_chats", list_chats_command))
-
-    # Set the main job to run repeatedly at a specific interval
-    job_queue = application.job_queue
-    job_queue.run_repeating(check_sms_job, interval=POLLING_INTERVAL_SECONDS, first=1)
-
-    print(f"🚀 Checking for new messages every {POLLING_INTERVAL_SECONDS} seconds.")
-    print("🤖 Bot is now online. Ready to listen for commands.")
-    print("⚠️ Press Ctrl+C to stop the bot.")
-    
-    # Start the bot
-    application.run_polling()
+    print(f"🚀 BOT IVAS STARTING...")
+    app = Application.builder().token(YOUR_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start_command))
+    app.job_queue.run_repeating(check_sms_job, interval=POLLING_INTERVAL_SECONDS, first=1)
+    print("🤖 Bot Berjalan! Tekan CTRL+C untuk stop.")
+    app.run_polling()
 
 if __name__ == "__main__":
-    main()**
+    main()
+
