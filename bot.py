@@ -46,7 +46,9 @@ SMS_API_ENDPOINT = "https://www.ivasms.com/portal/sms/received/getsms"
 USERNAME = "rofik7244@gmail.com"
 PASSWORD = "GanzJB123"
 
-# Interval dinaikin dikit biar Chrome gak jebol (5 detik aman)
+# ==============================================================================
+# FIX PENTING: JEDA 30 DETIK BIAR GAK CRASH "SKIPPED JOB" & CHROME GAK BERAT
+# ==============================================================================
 POLLING_INTERVAL_SECONDS = 30
 STATE_FILE = "processed_sms_ids.json" 
 CHAT_IDS_FILE = "chat_ids.json"
@@ -207,7 +209,7 @@ def save_chat_ids(chat_ids):
     with open(CHAT_IDS_FILE, 'w') as f:
         json.dump(chat_ids, f, indent=4)
 
-# --- New Telegram Command Handlers (TEKS ORIGINAL SESUAI REQUEST) ---
+# --- New Telegram Command Handlers (TEKS ORIGINAL) ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if str(user_id) in ADMIN_CHAT_IDS:
@@ -300,7 +302,6 @@ async def fetch_sms_from_api(client: httpx.AsyncClient, headers: dict, csrf_toke
         first_payload = {'from': from_date_str, 'to': to_date_str, '_token': csrf_token}
         summary_response = await client.post(SMS_API_ENDPOINT, headers=headers, data=first_payload)
         
-        # Checking if request was successful
         if summary_response.status_code != 200:
             return []
 
@@ -330,7 +331,7 @@ async def fetch_sms_from_api(client: httpx.AsyncClient, headers: dict, csrf_toke
                     sms_text_p = card.find('p', class_='mb-0')
                     if sms_text_p:
                         sms_text = sms_text_p.get_text(separator='\n').strip()
-                        date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S') # Using UTC time
+                        date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
                         
                         country_name_match = re.match(r'([a-zA-Z\s]+)', group_id)
                         if country_name_match: country_name = country_name_match.group(1).strip()
@@ -347,7 +348,6 @@ async def fetch_sms_from_api(client: httpx.AsyncClient, headers: dict, csrf_toke
                         unique_id = f"{phone_number}-{sms_text}"
                         flag = COUNTRY_FLAGS.get(country_name, "🏴‍☠️")
                         
-                        # Using 'sms_text' instead of 'full_sms_text'
                         all_messages.append({"id": unique_id, "time": date_str, "number": phone_number, "country": country_name, "flag": flag, "service": service, "code": code, "full_sms": sms_text}) 
         return all_messages
     except Exception as e:
@@ -361,10 +361,8 @@ async def send_telegram_message(context: ContextTypes.DEFAULT_TYPE, chat_id: str
         service_name, code_str = message_data.get("service", "N/A"), message_data.get("code", "N/A")
         full_sms_text = message_data.get("full_sms", "N/A")
         
-        # Add service emoji
-        service_emoji = SERVICE_EMOJIS.get(service_name, "❓") # If service not found, show '❓'
+        service_emoji = SERVICE_EMOJIS.get(service_name, "❓")
 
-        # Message format reverted to previous state with extra spacing
         full_message = (f"🔔 *You have successfully received OTP*\n\n" 
                         f"📞 *Number:* `{escape_markdown(number_str)}`\n" 
                         f"🔑 *Code:* `{escape_markdown(code_str)}`\n" 
@@ -381,7 +379,11 @@ async def send_telegram_message(context: ContextTypes.DEFAULT_TYPE, chat_id: str
 # ================= LOGIN PAKE CHROME (SELENIUM) =================
 def get_headers_via_selenium():
     chrome_options = Options()
-    chrome_options.add_argument("--headless") # Gak munculin jendela chrome (ringan)
+    
+    # --- FIX: HEADLESS DIMATIKAN BIAR GAK FREEZE ---
+    # chrome_options.add_argument("--headless") 
+    # -----------------------------------------------
+    
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--log-level=3")
@@ -394,30 +396,21 @@ def get_headers_via_selenium():
         print("ℹ️ Membuka Chrome buat Login...")
         driver.get(LOGIN_URL)
         
-        # Isi Email
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "email")))
         driver.find_element(By.NAME, "email").send_keys(USERNAME)
-        
-        # Isi Password
         driver.find_element(By.NAME, "password").send_keys(PASSWORD)
-        
-        # Klik Login
         driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
         
-        # Tunggu masuk dashboard
-        print("⏳ Sedang login...")
-        WebDriverWait(driver, 15).until(EC.url_contains("portal"))
+        print("⏳ Sedang login... (Jangan di-close)")
+        WebDriverWait(driver, 20).until(EC.url_contains("portal"))
         print("✅ Login Chrome SUKSES! Mengambil token...")
 
-        # Ambil Cookies & CSRF
         selenium_cookies = driver.get_cookies()
         
-        # Ambil CSRF Token dari page source
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         csrf_meta = soup.find('meta', {'name': 'csrf-token'})
         csrf_token = csrf_meta['content'] if csrf_meta else None
 
-        # Convert cookies buat HTTPX
         cookies_jar = httpx.Cookies()
         for cookie in selenium_cookies:
             cookies_jar.set(cookie['name'], cookie['value'], domain=cookie['domain'])
@@ -432,16 +425,16 @@ def get_headers_via_selenium():
 
 # --- Main Job or Task ---
 async def check_sms_job(context: ContextTypes.DEFAULT_TYPE):
-    print(f"\n--- [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] Checking for new messages ---") # Using UTC time
+    print(f"\n--- [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] Checking for new messages ---")
     
-    # 1. Login Pake Chrome (Sekali di awal job)
+    # 1. Login Pake Chrome
     cookies, csrf, dashboard_url = await asyncio.to_thread(get_headers_via_selenium)
     
     if not cookies or not csrf:
-        print("❌ Skip cycle ini, login gagal.")
+        print("❌ Skip cycle ini, login gagal/timeout.")
         return
 
-    # 2. Pake data login Chrome buat nembak API (Pake HTTPX biar cepet)
+    # 2. Scraping
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': dashboard_url,
@@ -449,7 +442,6 @@ async def check_sms_job(context: ContextTypes.DEFAULT_TYPE):
         'X-Requested-With': 'XMLHttpRequest'
     }
     
-    # Instructing httpx client to follow redirects
     async with httpx.AsyncClient(cookies=cookies, timeout=30.0, follow_redirects=True) as client:
         try:
             messages = await fetch_sms_from_api(client, headers, csrf)
@@ -482,31 +474,23 @@ async def check_sms_job(context: ContextTypes.DEFAULT_TYPE):
 def main():
     print("🚀 iVasms to Telegram Bot is starting...")
 
-    # Not checking for 'YOUR_SECOND_ADMIN_ID_HERE' anymore,
-    # as you have correctly provided the IDs in ADMIN_CHAT_IDS.
-    # A warning will be shown if the ADMIN_CHAT_IDS list is empty.
     if not ADMIN_CHAT_IDS:
         print("\n!!! 🔴 WARNING: You have not correctly set admin IDs in your ADMIN_CHAT_IDS list. !!!\n")
         return
 
-    # Create the bot application
     application = Application.builder().token(YOUR_BOT_TOKEN).build()
 
-    # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("add_chat", add_chat_command))
     application.add_handler(CommandHandler("remove_chat", remove_chat_command))
     application.add_handler(CommandHandler("list_chats", list_chats_command))
 
-    # Set the main job to run repeatedly at a specific interval
-    job_queue = application.job_queue
-    job_queue.run_repeating(check_sms_job, interval=POLLING_INTERVAL_SECONDS, first=1)
+    application.job_queue.run_repeating(check_sms_job, interval=POLLING_INTERVAL_SECONDS, first=1)
 
     print(f"🚀 Checking for new messages every {POLLING_INTERVAL_SECONDS} seconds.")
     print("🤖 Bot is now online. Ready to listen for commands.")
     print("⚠️ Press Ctrl+C to stop the bot.")
     
-    # Start the bot
     application.run_polling()
 
 if __name__ == "__main__":
