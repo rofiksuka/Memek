@@ -1,5 +1,5 @@
 import sys
-# === MANTRA ANTI-CRASH WINDOWS (JANGAN DIHAPUS) ===
+# === MANTRA ANTI-CRASH WINDOWS ===
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except AttributeError:
@@ -16,44 +16,35 @@ import traceback
 from urllib.parse import urljoin
 from datetime import datetime, timedelta
 
-# --- LIBRARY BARU BUAT LOGIN (SELENIUM) ---
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.chrome.options import Options
+# --- LIBRARY CHROME SILUMAN (UNDETECTED) ---
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 
 # --- TELEGRAM LIB ---
 from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram import Update
 
-# --- Configuration (Fill in your details) ---
+# --- KONFIGURASI ---
 YOUR_BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI"
-
-# ==================== New Addition: Multiple Admin IDs ====================
 ADMIN_CHAT_IDS = ["8446734557"]
-# =================================================================
-
-# Old chat IDs kept for the first run
-INITIAL_CHAT_IDS = ["8446734557"] 
-
-LOGIN_URL = "https://www.ivasms.com/login"
-BASE_URL = "https://www.ivasms.com/"
-SMS_API_ENDPOINT = "https://www.ivasms.com/portal/sms/received/getsms"
+INITIAL_CHAT_IDS = ["8446734557"]
 
 USERNAME = "rofik7244@gmail.com"
 PASSWORD = "GanzJB123"
 
-# ==============================================================================
-# FIX PENTING: JEDA 30 DETIK BIAR GAK CRASH "SKIPPED JOB" & CHROME GAK BERAT
-# ==============================================================================
-POLLING_INTERVAL_SECONDS = 30
+# URL
+LOGIN_URL = "https://www.ivasms.com/login"
+BASE_URL = "https://www.ivasms.com/"
+SMS_API_ENDPOINT = "https://www.ivasms.com/portal/sms/received/getsms"
+
+# Interval 60 detik biar aman dari Cloudflare (jangan dicepetin)
+POLLING_INTERVAL_SECONDS = 60
 STATE_FILE = "processed_sms_ids.json" 
 CHAT_IDS_FILE = "chat_ids.json"
 
-# List of countries (FULL ORIGINAL)
+# --- DATA NEGARA & SERVICE (FULL ORIGINAL) ---
 COUNTRY_FLAGS = {
     "Afghanistan": "🇦🇫", "Albania": "🇦🇱", "Algeria": "🇩🇿", "Andorra": "🇦🇩", "Angola": "🇦🇴",
     "Argentina": "🇦🇷", "Armenia": "🇦🇲", "Australia": "🇦🇺", "Austria": "🇦🇹", "Azerbaijan": "🇦🇿",
@@ -86,7 +77,6 @@ COUNTRY_FLAGS = {
     "Yemen": "🇾🇪", "Zambia": "🇿🇲", "Zimbabwe": "🇿🇼", "Unknown Country": "🏴‍☠️"
 }
 
-# Service Keywords (FULL ORIGINAL)
 SERVICE_KEYWORDS = {
     "Facebook": ["facebook"],
     "Google": ["google", "gmail"],
@@ -173,7 +163,6 @@ SERVICE_KEYWORDS = {
     "Unknown": ["unknown"]
 }
 
-# Service Emojis (FULL ORIGINAL)
 SERVICE_EMOJIS = {
     "Telegram": "📩", "WhatsApp": "🟢", "Facebook": "📘", "Instagram": "📸", "Messenger": "💬",
     "Google": "🔍", "Gmail": "✉️", "YouTube": "▶️", "Twitter": "🐦", "X": "❌",
@@ -193,23 +182,34 @@ SERVICE_EMOJIS = {
     "Viber": "📞", "Line": "💬", "WeChat": "💬", "VK": "🌐", "Unknown": "❓"
 }
 
-# --- Chat ID Management Functions ---
+# --- FUNCTIONS ---
 def load_chat_ids():
     if not os.path.exists(CHAT_IDS_FILE):
-        with open(CHAT_IDS_FILE, 'w') as f:
-            json.dump(INITIAL_CHAT_IDS, f)
+        with open(CHAT_IDS_FILE, 'w') as f: json.dump(INITIAL_CHAT_IDS, f)
         return INITIAL_CHAT_IDS
     try:
-        with open(CHAT_IDS_FILE, 'r') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
-        return INITIAL_CHAT_IDS
+        with open(CHAT_IDS_FILE, 'r') as f: return json.load(f)
+    except: return INITIAL_CHAT_IDS
 
 def save_chat_ids(chat_ids):
-    with open(CHAT_IDS_FILE, 'w') as f:
-        json.dump(chat_ids, f, indent=4)
+    with open(CHAT_IDS_FILE, 'w') as f: json.dump(chat_ids, f, indent=4)
 
-# --- New Telegram Command Handlers (TEKS ORIGINAL) ---
+def escape_markdown(text):
+    escape_chars = r'\_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
+
+def load_processed_ids():
+    if not os.path.exists(STATE_FILE): return set()
+    try:
+        with open(STATE_FILE, 'r') as f: return set(json.load(f))
+    except: return set()
+
+def save_processed_id(sms_id):
+    processed_ids = load_processed_ids()
+    processed_ids.add(sms_id)
+    with open(STATE_FILE, 'w') as f: json.dump(list(processed_ids), f)
+
+# --- TELEGRAM HANDLERS ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if str(user_id) in ADMIN_CHAT_IDS:
@@ -224,274 +224,178 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Sorry, you are not authorized to use this bot.")
 
 async def add_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if str(user_id) not in ADMIN_CHAT_IDS:
-        await update.message.reply_text("Sorry, only admins can use this command.")
-        return
+    if str(update.message.from_user.id) not in ADMIN_CHAT_IDS: return
     try:
-        new_chat_id = context.args[0]
-        chat_ids = load_chat_ids()
-        if new_chat_id not in chat_ids:
-            chat_ids.append(new_chat_id)
-            save_chat_ids(chat_ids)
-            await update.message.reply_text(f"✅ Chat ID {new_chat_id} successfully added.")
-        else:
-            await update.message.reply_text(f"⚠️ This chat ID ({new_chat_id}) is already in the list.")
-    except (IndexError, ValueError):
-        await update.message.reply_text("❌ Invalid format. Use: /add_chat <chat_id>")
+        new_id = context.args[0]
+        ids = load_chat_ids()
+        if new_id not in ids:
+            ids.append(new_id)
+            save_chat_ids(ids)
+            await update.message.reply_text(f"✅ Chat ID {new_id} added.")
+        else: await update.message.reply_text("⚠️ Already exists.")
+    except: await update.message.reply_text("❌ Use: /add_chat <id>")
 
 async def remove_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if str(user_id) not in ADMIN_CHAT_IDS:
-        await update.message.reply_text("Sorry, only admins can use this command.")
-        return
+    if str(update.message.from_user.id) not in ADMIN_CHAT_IDS: return
     try:
-        chat_id_to_remove = context.args[0]
-        chat_ids = load_chat_ids()
-        if chat_id_to_remove in chat_ids:
-            chat_ids.remove(chat_id_to_remove)
-            save_chat_ids(chat_ids)
-            await update.message.reply_text(f"✅ Chat ID {chat_id_to_remove} successfully removed.")
-        else:
-            await update.message.reply_text(f"🤔 This chat ID ({chat_id_to_remove}) was not found in the list.")
-    except (IndexError, ValueError):
-        await update.message.reply_text("❌ Invalid format. Use: /remove_chat <chat_id>")
+        rem_id = context.args[0]
+        ids = load_chat_ids()
+        if rem_id in ids:
+            ids.remove(rem_id)
+            save_chat_ids(ids)
+            await update.message.reply_text(f"✅ Chat ID {rem_id} removed.")
+        else: await update.message.reply_text("⚠️ Not found.")
+    except: await update.message.reply_text("❌ Use: /remove_chat <id>")
 
 async def list_chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if str(user_id) not in ADMIN_CHAT_IDS:
-        await update.message.reply_text("Sorry, only admins can use this command.")
-        return
-    
-    chat_ids = load_chat_ids()
-    if chat_ids:
-        message = "📜 Currently registered chat IDs are:\n"
-        for cid in chat_ids:
-            message += f"- `{escape_markdown(str(cid))}`\n"
-        try:
-            await update.message.reply_text(message, parse_mode='MarkdownV2')
-        except Exception as e:
-            plain_message = "📜 Currently registered chat IDs are:\n" + "\n".join(map(str, chat_ids))
-            await update.message.reply_text(plain_message)
-    else:
-        await update.message.reply_text("No chat IDs registered.")
-
-# --- Core Functions ---
-def escape_markdown(text):
-    escape_chars = r'\_*[]()~`>#+-=|{}.!'
-    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', str(text))
-
-def load_processed_ids():
-    if not os.path.exists(STATE_FILE): return set()
-    try:
-        with open(STATE_FILE, 'r') as f: return set(json.load(f))
-    except (json.JSONDecodeError, FileNotFoundError): return set()
-
-def save_processed_id(sms_id):
-    processed_ids = load_processed_ids()
-    processed_ids.add(sms_id)
-    with open(STATE_FILE, 'w') as f: json.dump(list(processed_ids), f)
+    if str(update.message.from_user.id) not in ADMIN_CHAT_IDS: return
+    ids = load_chat_ids()
+    msg = "📜 Chat IDs:\n" + "\n".join(ids) if ids else "No IDs."
+    await update.message.reply_text(msg)
 
 # --- SCRAPING LOGIC ---
 async def fetch_sms_from_api(client: httpx.AsyncClient, headers: dict, csrf_token: str):
     all_messages = []
     try:
-        today = datetime.utcnow() # Using UTC time
-        start_date = today - timedelta(days=1) # Data for the last 24 hours
-        from_date_str, to_date_str = start_date.strftime('%m/%d/%Y'), today.strftime('%m/%d/%Y')
-        first_payload = {'from': from_date_str, 'to': to_date_str, '_token': csrf_token}
-        summary_response = await client.post(SMS_API_ENDPOINT, headers=headers, data=first_payload)
+        today = datetime.utcnow()
+        start_date = today - timedelta(days=1)
+        from_str, to_str = start_date.strftime('%m/%d/%Y'), today.strftime('%m/%d/%Y')
         
-        if summary_response.status_code != 200:
-            return []
-
-        summary_soup = BeautifulSoup(summary_response.text, 'html.parser')
-        group_divs = summary_soup.find_all('div', {'class': 'pointer'})
-        if not group_divs: return []
+        # 1. Summary
+        res1 = await client.post(SMS_API_ENDPOINT, headers=headers, data={'from': from_str, 'to': to_str, '_token': csrf_token})
+        if res1.status_code != 200: return []
         
-        group_ids = [re.search(r"getDetials\('(.+?)'\)", div.get('onclick', '')).group(1) for div in group_divs if re.search(r"getDetials\('(.+?)'\)", div.get('onclick', ''))]
-        numbers_url = urljoin(BASE_URL, "portal/sms/received/getsms/number")
+        soup = BeautifulSoup(res1.text, 'html.parser')
+        group_ids = [re.search(r"getDetials\('(.+?)'\)", d.get('onclick','')).group(1) for d in soup.find_all('div', {'class': 'pointer'}) if "getDetials" in d.get('onclick','')]
+        
+        num_url = urljoin(BASE_URL, "portal/sms/received/getsms/number")
         sms_url = urljoin(BASE_URL, "portal/sms/received/getsms/number/sms")
 
-        for group_id in group_ids:
-            numbers_payload = {'start': from_date_str, 'end': to_date_str, 'range': group_id, '_token': csrf_token}
-            numbers_response = await client.post(numbers_url, headers=headers, data=numbers_payload)
-            numbers_soup = BeautifulSoup(numbers_response.text, 'html.parser')
-            number_divs = numbers_soup.select("div[onclick*='getDetialsNumber']")
-            if not number_divs: continue
-            phone_numbers = [div.text.strip() for div in number_divs]
+        for gid in group_ids:
+            # 2. Numbers
+            res2 = await client.post(num_url, headers=headers, data={'start': from_str, 'end': to_str, 'range': gid, '_token': csrf_token})
+            phones = [d.text.strip() for d in BeautifulSoup(res2.text, 'html.parser').select("div[onclick*='getDetialsNumber']")]
             
-            for phone_number in phone_numbers:
-                sms_payload = {'start': from_date_str, 'end': to_date_str, 'Number': phone_number, 'Range': group_id, '_token': csrf_token}
-                sms_response = await client.post(sms_url, headers=headers, data=sms_payload)
-                sms_soup = BeautifulSoup(sms_response.text, 'html.parser')
-                final_sms_cards = sms_soup.find_all('div', class_='card-body')
-                
-                for card in final_sms_cards:
-                    sms_text_p = card.find('p', class_='mb-0')
-                    if sms_text_p:
-                        sms_text = sms_text_p.get_text(separator='\n').strip()
-                        date_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-                        
-                        country_name_match = re.match(r'([a-zA-Z\s]+)', group_id)
-                        if country_name_match: country_name = country_name_match.group(1).strip()
-                        else: country_name = group_id.strip()
-                        
-                        service = "Unknown"
-                        lower_sms_text = sms_text.lower()
-                        for service_name, keywords in SERVICE_KEYWORDS.items():
-                            if any(keyword in lower_sms_text for keyword in keywords):
-                                service = service_name
-                                break
-                        code_match = re.search(r'(\d{3}-\d{3})', sms_text) or re.search(r'\b(\d{4,8})\b', sms_text)
-                        code = code_match.group(1) if code_match else "N/A"
-                        unique_id = f"{phone_number}-{sms_text}"
-                        flag = COUNTRY_FLAGS.get(country_name, "🏴‍☠️")
-                        
-                        all_messages.append({"id": unique_id, "time": date_str, "number": phone_number, "country": country_name, "flag": flag, "service": service, "code": code, "full_sms": sms_text}) 
+            for phone in phones:
+                # 3. SMS
+                res3 = await client.post(sms_url, headers=headers, data={'start': from_str, 'end': to_str, 'Number': phone, 'Range': gid, '_token': csrf_token})
+                for card in BeautifulSoup(res3.text, 'html.parser').find_all('div', class_='card-body'):
+                    p = card.find('p', class_='mb-0')
+                    if not p: continue
+                    text = p.get_text(separator='\n').strip()
+                    
+                    # Logic
+                    uid = f"{phone}-{text[:20]}"
+                    service = "Unknown"
+                    for s, kws in SERVICE_KEYWORDS.items():
+                        if any(k in text.lower() for k in kws): service = s; break
+                    
+                    code = (re.search(r'(\d{3}-\d{3})', text) or re.search(r'\b(\d{4,8})\b', text)).group(1) if (re.search(r'(\d{3}-\d{3})', text) or re.search(r'\b(\d{4,8})\b', text)) else "N/A"
+                    cname = re.match(r'([a-zA-Z\s]+)', gid).group(1).strip() if re.match(r'([a-zA-Z\s]+)', gid) else "Unknown"
+                    flag = COUNTRY_FLAGS.get(cname, "🏴‍☠️")
+                    
+                    all_messages.append({"id": uid, "time": datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'), "number": phone, "country": cname, "flag": flag, "service": service, "code": code, "full_sms": text})
         return all_messages
-    except Exception as e:
-        print(f"❌ Error scraping: {e}")
-        return []
+    except: return []
 
-async def send_telegram_message(context: ContextTypes.DEFAULT_TYPE, chat_id: str, message_data: dict):
+async def send_to_tele(context, chat_id, msg):
     try:
-        time_str, number_str = message_data.get("time", "N/A"), message_data.get("number", "N/A")
-        country_name, flag_emoji = message_data.get("country", "N/A"), message_data.get("flag", "🏴‍☠️")
-        service_name, code_str = message_data.get("service", "N/A"), message_data.get("code", "N/A")
-        full_sms_text = message_data.get("full_sms", "N/A")
-        
-        service_emoji = SERVICE_EMOJIS.get(service_name, "❓")
+        emo = SERVICE_EMOJIS.get(msg['service'], "❓")
+        txt = (f"🔔 *You have successfully received OTP*\n\n" 
+               f"📞 *Number:* `{escape_markdown(msg['number'])}`\n" 
+               f"🔑 *Code:* `{escape_markdown(msg['code'])}`\n" 
+               f"🏆 *Service:* {emo} {escape_markdown(msg['service'])}\n" 
+               f"🌎 *Country:* {escape_markdown(msg['country'])} {msg['flag']}\n" 
+               f"⏳ *Time:* `{escape_markdown(msg['time'])}`\n\n" 
+               f"💬 *Message:*\n```\n{msg['full_sms']}\n```")
+        await context.bot.send_message(chat_id=chat_id, text=txt, parse_mode='MarkdownV2')
+    except Exception as e: print(f"❌ Send Error: {e}")
 
-        full_message = (f"🔔 *You have successfully received OTP*\n\n" 
-                        f"📞 *Number:* `{escape_markdown(number_str)}`\n" 
-                        f"🔑 *Code:* `{escape_markdown(code_str)}`\n" 
-                        f"🏆 *Service:* {service_emoji} {escape_markdown(service_name)}\n" 
-                        f"🌎 *Country:* {escape_markdown(country_name)} {flag_emoji}\n" 
-                        f"⏳ *Time:* `{escape_markdown(time_str)}`\n\n" 
-                        f"💬 *Message:*\n" 
-                        f"```\n{full_sms_text}\n```")
-        
-        await context.bot.send_message(chat_id=chat_id, text=full_message, parse_mode='MarkdownV2')
-    except Exception as e:
-        print(f"❌ Error sending message to chat ID {chat_id}: {e}")
-
-# ================= LOGIN PAKE CHROME (SELENIUM) =================
-def get_headers_via_selenium():
-    chrome_options = Options()
+# --- LOGIN SILUMAN (UNDETECTED) ---
+def login_via_uc():
+    options = uc.ChromeOptions()
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-popup-blocking")
     
-    # --- FIX: HEADLESS DIMATIKAN BIAR GAK FREEZE ---
-    # chrome_options.add_argument("--headless") 
-    # -----------------------------------------------
-    
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--log-level=3")
-
-    # Install driver otomatis
-    service = ChromeService(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+    # Init driver siluman
+    driver = uc.Chrome(options=options, version_main=None) # Auto version
 
     try:
-        print("ℹ️ Membuka Chrome buat Login...")
+        print("ℹ️ Membuka Chrome Siluman...")
         driver.get(LOGIN_URL)
         
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "email")))
+        # 1. ISI EMAIL
+        print("⏳ Menunggu kolom Email (60 detik max)...")
+        # Di sini kita kasih waktu 60 detik. Kalau Cloudflare muncul, LU KLIK MANUAL!
+        WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.NAME, "email")))
+        
+        print("✍️ Mengisi Email...")
         driver.find_element(By.NAME, "email").send_keys(USERNAME)
         driver.find_element(By.NAME, "password").send_keys(PASSWORD)
+        
+        # 2. KLIK LOGIN
+        print("🖱️ Klik Login...")
         driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
         
-        print("⏳ Sedang login... (Jangan di-close)")
-        WebDriverWait(driver, 20).until(EC.url_contains("portal"))
-        print("✅ Login Chrome SUKSES! Mengambil token...")
+        # 3. TUNGGU DASHBOARD
+        print("⏳ Menunggu masuk dashboard...")
+        WebDriverWait(driver, 30).until(EC.url_contains("portal"))
+        print("✅ Login SUKSES! Mengambil data...")
 
-        selenium_cookies = driver.get_cookies()
-        
+        cookies = driver.get_cookies()
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        csrf_meta = soup.find('meta', {'name': 'csrf-token'})
-        csrf_token = csrf_meta['content'] if csrf_meta else None
-
-        cookies_jar = httpx.Cookies()
-        for cookie in selenium_cookies:
-            cookies_jar.set(cookie['name'], cookie['value'], domain=cookie['domain'])
-
-        return cookies_jar, csrf_token, driver.current_url
+        csrf = soup.find('meta', {'name': 'csrf-token'})['content']
+        
+        jar = httpx.Cookies()
+        for c in cookies: jar.set(c['name'], c['value'], domain=c['domain'])
+        
+        return jar, csrf, driver.current_url
 
     except Exception as e:
-        print(f"❌ Gagal Login Chrome: {e}")
+        print(f"❌ Login Gagal/Timeout: {e}")
         return None, None, None
     finally:
-        driver.quit()
+        try: driver.quit()
+        except: pass
 
-# --- Main Job or Task ---
+# --- JOB ---
 async def check_sms_job(context: ContextTypes.DEFAULT_TYPE):
-    print(f"\n--- [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] Checking for new messages ---")
+    print(f"\n--- [{datetime.utcnow().strftime('%H:%M:%S')}] Checking... ---")
     
-    # 1. Login Pake Chrome
-    cookies, csrf, dashboard_url = await asyncio.to_thread(get_headers_via_selenium)
+    cookies, csrf, dash_url = await asyncio.to_thread(login_via_uc)
     
-    if not cookies or not csrf:
-        print("❌ Skip cycle ini, login gagal/timeout.")
+    if not cookies: 
+        print("❌ Login gagal. Coba lagi nanti.")
         return
 
-    # 2. Scraping
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': dashboard_url,
-        'X-CSRF-TOKEN': csrf,
-        'X-Requested-With': 'XMLHttpRequest'
-    }
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Referer': dash_url, 'X-CSRF-TOKEN': csrf, 'X-Requested-With': 'XMLHttpRequest'}
     
     async with httpx.AsyncClient(cookies=cookies, timeout=30.0, follow_redirects=True) as client:
-        try:
-            messages = await fetch_sms_from_api(client, headers, csrf)
-            if not messages: 
-                print("✔️ No new messages found.")
-                return
+        msgs = await fetch_sms_from_api(client, headers, csrf)
+        if not msgs: print("💤 No messages."); return
+        
+        processed = load_processed_ids()
+        chats = load_chat_ids()
+        count = 0
+        for m in reversed(msgs):
+            if m['id'] not in processed:
+                count += 1
+                print(f"🔥 OTP: {m['code']} ({m['service']})")
+                for cid in chats: await send_to_tele(context, cid, m)
+                save_processed_id(m['id'])
+        if count: print(f"✅ Sent {count} msgs.")
 
-            processed_ids = load_processed_ids()
-            chat_ids_to_send = load_chat_ids()
-            new_messages_found = 0
-            
-            for msg in reversed(messages):
-                if msg["id"] not in processed_ids:
-                    new_messages_found += 1
-                    print(f"✔️ New message found from: {msg['number']}.")
-                    for chat_id in chat_ids_to_send:
-                        await send_telegram_message(context, chat_id, msg)
-                    save_processed_id(msg["id"])
-            
-            if new_messages_found > 0:
-                print(f"✅ Total {new_messages_found} new messages sent to Telegram.")
-
-        except httpx.RequestError as e:
-            print(f"❌ Network issue (httpx): {e}")
-        except Exception as e:
-            print(f"❌ A problem occurred in the main process: {e}")
-            traceback.print_exc()
-
-# --- Main part to start the bot ---
 def main():
-    print("🚀 iVasms to Telegram Bot is starting...")
-
-    if not ADMIN_CHAT_IDS:
-        print("\n!!! 🔴 WARNING: You have not correctly set admin IDs in your ADMIN_CHAT_IDS list. !!!\n")
-        return
-
-    application = Application.builder().token(YOUR_BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("add_chat", add_chat_command))
-    application.add_handler(CommandHandler("remove_chat", remove_chat_command))
-    application.add_handler(CommandHandler("list_chats", list_chats_command))
-
-    application.job_queue.run_repeating(check_sms_job, interval=POLLING_INTERVAL_SECONDS, first=1)
-
-    print(f"🚀 Checking for new messages every {POLLING_INTERVAL_SECONDS} seconds.")
-    print("🤖 Bot is now online. Ready to listen for commands.")
-    print("⚠️ Press Ctrl+C to stop the bot.")
-    
-    application.run_polling()
+    print("🚀 BOT IVAS (ANTI-CLOUDFLARE) STARTING...")
+    if not ADMIN_CHAT_IDS: return
+    app = Application.builder().token(YOUR_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("add_chat", add_chat_command))
+    app.add_handler(CommandHandler("remove_chat", remove_chat_command))
+    app.add_handler(CommandHandler("list_chats", list_chats_command))
+    app.job_queue.run_repeating(check_sms_job, interval=POLLING_INTERVAL_SECONDS, first=1)
+    print("🤖 Bot Online. Tunggu Chrome muncul...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
