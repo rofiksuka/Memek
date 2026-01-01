@@ -47,7 +47,7 @@ USERNAME = "rofik7244@gmail.com"
 PASSWORD = "GanzJB123"
 
 # Interval dinaikin dikit biar Chrome gak jebol (5 detik aman)
-POLLING_INTERVAL_SECONDS = 5
+POLLING_INTERVAL_SECONDS = 30
 STATE_FILE = "processed_sms_ids.json" 
 CHAT_IDS_FILE = "chat_ids.json"
 
