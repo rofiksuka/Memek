@@ -1,585 +1,476 @@
-#!/usr/bin/env python3
-"""
-IVASMS Auto Forwarding Bot
-Automatically forwards SMS from ivasms.com to Telegram
-
-Version: 1.0.0
-Developer: Samuels Ramon
-Company: E.U.W IT GROUP LTD.
-License: MIT
-"""
-
-__version__ = "1.0.0"
-__author__ = "Samuels Ramon"
-__company__ = "E.U.W IT GROUP LTD."
-__license__ = "MIT"
-
-import os, time, asyncio, html, logging, re
+import asyncio
+from pyppeteer import connect
+from bs4 import BeautifulSoup
 from datetime import datetime
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import undetected_chromedriver as uc
+import re
+import json
+import os
+import requests
+import time
+# from dotenv import load_dotenv # Hapus import ini
+import socket
+from threading import Thread
 
-# ======= CONFIG =======
-BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI"     # Your Telegram bot token # Get from @BotFather   
-ADMIN_ID = 8446734557                                            # Your Telegram user ID
-CHAT_ID = -1003594038682                                         # Your channel/group ID
+from flask import Flask, jsonify, render_template
 
-# Login credentials
-EMAIL = "rofik7244@gmail.com"             # Your ivasms.com email
-PASSWORD = "GanzJB123"                     # Your ivasms.com password
+# ================= Konfigurasi Variabel (Pengganti .env) =================
+# Anda dapat mengubah nilai di sini
+RDP_PUBLIC_IP = "178.128.96.175:22" # IP yang digunakan untuk login ke RDP (tanpa port)
+TELEGRAM_BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI"
+TELEGRAM_CHAT_ID = "-1003594038682"
+TELEGRAM_ADMIN_ID = "8446734557"
+FLASK_PORT = 5000 # Port untuk Flask
 
-HEADLESS = False  # Set True to hide browser
+# ================= Konstanta Telegram =================
+TELEGRAM_BOT_LINK = "http://t.me/tesyuan_bot"
+TELEGRAM_ADMIN_LINK = "https://t.me/punyakah"
 
-os.makedirs("downloads", exist_ok=True)
+# Ambil nilai dari variabel konfigurasi di atas
+BOT = TELEGRAM_BOT_TOKEN
+CHAT = TELEGRAM_CHAT_ID
+try:
+    # Menggunakan int(os.getenv(...)) diganti dengan konversi langsung
+    ADMIN_ID = int(TELEGRAM_ADMIN_ID)
+except (ValueError, TypeError):
+    print("⚠️ WARNING: TELEGRAM_ADMIN_ID tidak valid. Admin command dinonaktifkan.")
+    ADMIN_ID = None
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot_auto.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+LAST_ID = 0
+GLOBAL_ASYNC_LOOP = None
 
-# Fix emoji display on Windows console
-import sys
-if sys.platform == 'win32':
-    sys.stdout.reconfigure(encoding='utf-8')
-
-driver = None
-
-# ---------- BROWSER & LOGIN ----------
-def init_browser():
-    global driver
+# ================= Utils =================
+def get_local_ip():
+    s = None
     try:
-        logger.info("🌐 Opening Chrome browser...")
-        options = uc.ChromeOptions()
-        if HEADLESS:
-            options.add_argument('--headless=new')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--disable-extensions')
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_argument('--start-maximized')
-        # On Windows, detect installed Chrome major version and pass to UC
-        version_main = None
-        try:
-            if os.name == 'nt':
-                # Read Chrome version from Windows Registry
-                try:
-                    import winreg
-                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\\Google\\Chrome\\BLBeacon") as key:
-                        ver, _ = winreg.QueryValueEx(key, "version")
-                        version_main = int(str(ver).split('.')[0])
-                except Exception:
-                    pass
-            
-            if version_main:
-                logger.info(f"🧩 Detected Chrome major version: {version_main}")
-                driver = uc.Chrome(options=options, version_main=version_main, use_subprocess=True)
-            else:
-                logger.info("🧩 Could not detect Chrome version, letting UC auto-select driver")
-                driver = uc.Chrome(options=options, use_subprocess=True)
-        except Exception as e:
-            logger.error(f"❌ Primary Chrome start failed: {e}")
-            # If error mentions current browser version, retry with that version
-            try:
-                msg = str(e)
-                m = re.search(r"Current browser version is\s+(\d+)", msg)
-                if m:
-                    detected = int(m.group(1))
-                    logger.info(f"🔁 Retrying with detected Chrome major version: {detected}")
-                    driver = uc.Chrome(options=options, version_main=detected, use_subprocess=True)
-                else:
-                    raise RuntimeError("No version hint in error")
-            except Exception as e_retry:
-                logger.warning(f"⚠️ Version retry failed: {e_retry}")
-                # Final fallback attempts
-                try:
-                    driver = uc.Chrome(options=options)
-                except Exception as e2:
-                    logger.error(f"❌ Fallback Chrome start failed: {e2}")
-                    raise
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80)) 
+        return s.getsockname()[0]
+    except:
+        return "127.0.0.1"
+    finally:
+        if s: s.close()
 
-        logger.info("✅ Browser opened")
+def create_inline_keyboard():
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "📞 GetNumber", "url": TELEGRAM_BOT_LINK},
+                {"text": "👨‍💻 Admin", "url": TELEGRAM_ADMIN_LINK}
+            ]
+        ]
+    }
+    return json.dumps(keyboard)
+
+def clean_phone_number(phone):
+    if not phone: return "N/A"
+    cleaned = re.sub(r'[^\d+]', '', phone)
+    if cleaned and not cleaned.startswith('+') and len(cleaned) >= 8:
+        cleaned = '+' + cleaned
+    return cleaned or phone
+
+def mask_phone_number(phone, visible_start=4, visible_end=4):
+    if not phone or phone == "N/A": return phone
+    prefix = '+' if phone.startswith('+') else ''
+    digits = phone[1:] if prefix else phone
+    if len(digits) <= visible_start + visible_end:
+        return phone
+    masked = '*' * (len(digits) - visible_start - visible_end)
+    return f"{prefix}{digits[:visible_start]}{masked}{digits[-visible_end:]}"
+
+def clean_range_text(text):
+    """Hanya ambil huruf, buang angka, dan ubah ke huruf besar."""
+    if not text: return "N/A"
+    cleaned = re.sub(r'[^a-zA-Z\s]+', '', text).strip()
+    return cleaned.upper() if cleaned else "UNKNOWN RANGE"
+
+def escape_html(text):
+    if not isinstance(text, str): return text
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+def format_otp_message(otp_data):
+    otp = otp_data.get('otp', 'N/A')
+    phone = otp_data.get('phone', 'N/A')
+    masked_phone = mask_phone_number(phone)
+    service = otp_data.get('service', 'Unknown')
+    range_text = clean_range_text(otp_data.get('range', 'N/A'))
+    timestamp = otp_data.get('timestamp', datetime.now().strftime('%H:%M:%S'))
+    full_message = escape_html(otp_data.get('raw_message', 'N/A'))
+
+    return f"""🔐 <b>New OTP Received</b>
+
+🏷️ Range: <b>{range_text}</b>
+📞 Number: <code>{masked_phone}</code>
+🌐 Service: <b>{service}</b>
+🔑 OTP: <code>{otp}</code>
+
+FULL MESSAGE:
+<blockquote>{full_message}</blockquote>"""
+
+def extract_otp_from_text(text):
+    if not text: return None
+    patterns = [r'\b(\d{6})\b', r'\b(\d{5})\b', r'\b(\d{4})\b', r'(?:code|verification|otp|pin)[\s\:\-]*(\d+)']
+    for p in patterns:
+        m = re.search(p, text, re.I)
+        if m:
+            otp = m.group(1) if len(m.groups()) == 1 else m.group(0)
+            if 4 <= len(otp) <= 6 and not (len(otp) == 4 and '20' in otp):
+                return otp
+            elif len(otp) > 6:
+                if re.search(r'\d{4,6}', otp):
+                    return re.search(r'\d{4,6}', otp).group(0)
+    return None
+
+def clean_service_name(service):
+    if not service: return "Unknown"
+    s = service.strip().title()
+    maps = {'fb':'Facebook','google':'Google','whatsapp':'WhatsApp','telegram':'Telegram',
+            'instagram':'Instagram','twitter':'Twitter','linkedin':'LinkedIn','tiktok':'TikTok'}
+    for k,v in maps.items():
+        if k in s.lower(): return v
+    return s
+
+def get_status_message(stats):
+    return f"""🤖 <b>Bot Status</b>
+
+⚡ Status: <b>{stats['status']}</b>
+⏱️ Uptime: {stats['uptime']}
+📨 Total OTPs Sent: <b>{stats['total_otps_sent']}</b>
+🔍 Last Check: {stats['last_check']}
+💾 Cache Size: {stats['cache_size']} items
+
+<i>Bot is running</i>"""
+
+# ================= OTP Filter =================
+class OTPFilter:
+    def __init__(self, file='otp_cache.json', expire=999999):
+        self.file = file
+        self.expire = expire
+        self.cache = self._load()
+        self.unsaved_changes = False
+        
+    def _load(self):
+        if os.path.exists(self.file):
+            try:
+                if os.stat(self.file).st_size > 0:
+                    return json.load(open(self.file,'r'))
+            except:
+                pass
+        return {}
+        
+    def _save(self):
+        try:
+            with open(self.file,'w') as f:
+                json.dump(self.cache, f, indent=2)
+        except Exception as e:
+            print(f"❌ Failed saving cache: {e}")
+
+    def key(self, d):
+        return f"{d['otp']}_{d['phone']}_{clean_service_name(d['service'])}_{clean_range_text(d.get('range','N/A'))}"
+
+    def is_dup(self, d):
+        return self.key(d) in self.cache
+
+    def add(self, d):
+        self.cache[self.key(d)] = {'timestamp': datetime.now().isoformat()}
+        self.unsaved_changes = True
+
+    def filter(self, lst):
+        out = []
+        for d in lst:
+            if d.get('otp') and d.get('phone') != 'N/A' and not self.is_dup(d):
+                out.append(d)
+                self.add(d)
+        return out
+
+otp_filter = OTPFilter()
+
+# ================= SMC.json =================
+SMC_FILE = "smc.json"
+
+def save_to_smc(otp_data):
+    entry = {
+        "range": clean_range_text(otp_data.get("range", "N/A")),
+        "number": otp_data.get("phone", "N/A"),
+        "otp": otp_data.get("otp", "N/A")
+    }
+    data = []
+    if os.path.exists(SMC_FILE):
+        try:
+            with open(SMC_FILE,'r') as f:
+                content = f.read().strip()
+                if content:
+                    data = json.loads(content)
+        except:
+            pass
+    data.append(entry)
+    try:
+        with open(SMC_FILE,'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"❌ Failed to save to smc.json: {e}")
+
+# ================= Telegram =================
+def send_tg(text, with_inline_keyboard=False, target_chat_id=None):
+    chat_id_to_use = target_chat_id if target_chat_id else CHAT
+    if not BOT or not chat_id_to_use:
+        print("❌ Telegram config missing.")
+        return
+    payload = {'chat_id': chat_id_to_use,'text': text,'parse_mode':'HTML'}
+    if with_inline_keyboard: payload['reply_markup'] = create_inline_keyboard()
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data=payload, timeout=15)
+        if not r.ok:
+            print(f"⚠️ Telegram API error: {r.text}")
+    except Exception as e:
+        print(f"❌ send_tg error: {e}")
+
+def send_photo_tg(photo_path, caption="", target_chat_id=None):
+    chat_id_to_use = target_chat_id if target_chat_id else CHAT
+    if not BOT or not chat_id_to_use:
+        print("❌ Telegram config missing.")
+        return False
+    try:
+        with open(photo_path,'rb') as photo_file:
+            files = {'photo': photo_file}
+            data = {'chat_id': chat_id_to_use,'caption':caption,'parse_mode':'HTML'}
+            r = requests.post(f"https://api.telegram.org/bot{BOT}/sendPhoto", files=files, data=data, timeout=20)
+        if not r.ok: print(f"⚠️ Telegram Photo API error: {r.text}"); return False
         return True
     except Exception as e:
-        logger.error(f"❌ Browser error: {e}")
+        print(f"❌ send_photo_tg error: {e}")
         return False
 
-def auto_login():
-    """Automatic login to ivasms.com"""
-    global driver
-    
-    try:
-        logger.info("🔐 Logging in to ivasms.com...")
-        
-        # Go to login page
-        driver.get("https://www.ivasms.com/login")
-        time.sleep(4)
-        
-        # Check if already logged in
-        if "portal" in driver.current_url:
-            logger.info("✅ Already logged in!")
+# ================= SMS Monitor =================
+URL = "https://www.ivasms.com/portal/live/my_sms"
+
+class SMSMonitor:
+    def __init__(self, url=URL):
+        self.url = url
+        self.browser = None
+        self.page = None
+
+    async def initialize(self):
+        # Menggunakan 127.0.0.1:9222 (port default untuk pyppeteer connect)
+        self.browser = await connect(browserURL="http://127.0.0.1:9222")
+        pages = await self.browser.pages()
+        page = next((p for p in pages if self.url in p.url), None)
+        if not page:
+            page = await self.browser.newPage()
+            await page.goto(self.url, {'waitUntil':'networkidle0'})
+        self.page = page
+        print("✅ Browser page connected.")
+
+    async def fetch_sms(self):
+        if not self.page: await self.initialize()
+        try:
+            await self.page.evaluate('window.scrollBy(0,100)')
+            await self.page.evaluate('window.scrollBy(0,-100)')
+            await asyncio.sleep(0.1)
+        except: pass
+        html = await self.page.content()
+        soup = BeautifulSoup(html,'html.parser')
+        messages = []
+
+        tbody = soup.find("tbody", id="LiveTestSMS")
+        if not tbody: return self._fallback_fetch_sms(soup)
+
+        for r in tbody.find_all("tr"):
+            tds = r.find_all("td")
+            if len(tds)>=5:
+                info_div = tds[0].find("div", class_="flex-1 ml-3")
+                range_text = info_div.find("h6").get_text(strip=True) if info_div and info_div.find("h6") else "N/A"
+                phone_raw = info_div.find("p").get_text(strip=True) if info_div and info_div.find("p") else "N/A"
+                phone = clean_phone_number(phone_raw)
+                service = clean_service_name(tds[1].get_text(strip=True))
+                raw_message = tds[4].get_text(strip=True)
+                otp = extract_otp_from_text(raw_message)
+                if otp and phone!="N/A":
+                    messages.append({"otp":otp,"phone":phone,"service":service,"range":range_text,
+                                     "timestamp":datetime.now().strftime("%H:%M:%S"),"raw_message":raw_message})
+        return messages
+
+    def _fallback_fetch_sms(self, soup):
+        messages = []
+        for tb in soup.find_all("table"):
+            for r in tb.find_all("tr")[1:]:
+                tds = r.find_all("td")
+                if len(tds)>=5:
+                    raw = tds[4].get_text(strip=True)
+                    otp = extract_otp_from_text(raw)
+                    if otp:
+                        phone = clean_phone_number(tds[0].get_text(strip=True))
+                        service = clean_service_name(tds[1].get_text(strip=True)) if len(tds)>1 else "Unknown"
+                        range_text = "Unknown Range"
+                        messages.append({"otp":otp,"phone":phone,"service":service,"range":range_text,
+                                         "timestamp":datetime.now().strftime("%H:%M:%S"),"raw_message":raw})
+        return messages
+
+    async def refresh_and_screenshot(self, admin_chat_id):
+        if not self.page:
+            try: await self.initialize()
+            except Exception as e:
+                send_tg(f"⚠️ Error init browser: {e}", target_chat_id=admin_chat_id)
+                return False
+        screenshot_filename = f"screenshot_{int(time.time())}.png"
+        try:
+            await self.page.reload({'waitUntil':'networkidle0'})
+            await self.page.screenshot({'path':screenshot_filename,'fullPage':True})
+            caption = f"✅ Page refreshed at {datetime.now().strftime('%H:%M:%S')}\n<i>Pesan OTP di halaman telah dihapus.</i>"
+            send_photo_tg(screenshot_filename, caption, target_chat_id=admin_chat_id)
             return True
-        
-        # Enter email
-        logger.info("📧 Entering email...")
-        try:
-            email_field = WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.NAME, "email"))
-            )
-        except:
-            # Try alternate selector
-            email_field = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
-            )
-        
-        email_field.clear()
-        time.sleep(0.5)
-        
-        # Type email character by character (more human-like)
-        for char in EMAIL:
-            email_field.send_keys(char)
-            time.sleep(0.05)
-        
-        time.sleep(1)
-        
-        # Enter password
-        logger.info("🔑 Entering password...")
-        try:
-            password_field = driver.find_element(By.NAME, "password")
-        except:
-            password_field = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
-        
-        password_field.clear()
-        time.sleep(0.5)
-        
-        # Type password character by character
-        for char in PASSWORD:
-            password_field.send_keys(char)
-            time.sleep(0.05)
-        
-        time.sleep(1)
-        
-        # Click login button
-        logger.info("👆 Clicking login button...")
-        try:
-            login_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-        except:
-            login_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Login') or contains(text(), 'Sign in')]")
-        
-        login_btn.click()
-        
-        # Wait for redirect
-        logger.info("⏳ Waiting for login redirect...")
-        time.sleep(8)
-        
-        # Check if logged in
-        current_url = driver.current_url
-        if "portal" in current_url or "dashboard" in current_url:
-            logger.info("✅ Login successful!")
-            return True
-        else:
-            logger.error(f"❌ Login failed! Current URL: {current_url}")
-            # Take screenshot for debugging
-            try:
-                driver.save_screenshot("login_failed.png")
-                logger.info("📸 Screenshot saved: login_failed.png")
-            except:
-                pass
+        except Exception as e:
+            send_tg(f"⚠️ Error refresh/screenshot: {e}", target_chat_id=admin_chat_id)
             return False
-            
-    except Exception as e:
-        logger.error(f"❌ Login error: {e}")
-        try:
-            driver.save_screenshot("login_error.png")
-        except:
-            pass
-        return False
+        finally:
+            if os.path.exists(screenshot_filename): os.remove(screenshot_filename)
 
-def get_sms_data():
-    """Get SMS data from page"""
-    global driver
-    
+monitor = SMSMonitor()
+start = time.time()
+total_sent = 0
+BOT_STATUS = {"status":"Initializing...","uptime":"--","total_otps_sent":0,"last_check":"Never","cache_size":0,"monitoring_active":True}
+
+def update_global_status():
+    global BOT_STATUS
+    uptime_seconds = time.time()-start
+    BOT_STATUS.update({
+        "uptime":f"{int(uptime_seconds//3600)}h {int((uptime_seconds%3600)//60)}m {int(uptime_seconds%60)}s",
+        "total_otps_sent":total_sent,
+        "last_check":datetime.now().strftime("%H:%M:%S"),
+        "cache_size":len(otp_filter.cache),
+        "status":"Running" if BOT_STATUS["monitoring_active"] else "Paused"
+    })
+    return BOT_STATUS
+
+# ================= Loop Monitor OTP =================
+def check_cmd(stats):
+    global LAST_ID
+    if ADMIN_ID is None or not BOT: return
     try:
-        # Navigate to live SMS page
-        target_url = "https://www.ivasms.com/portal/live/my_sms"
-        
-        if driver.current_url != target_url:
-            logger.info(f"📱 Navigating to SMS page...")
-            driver.get(target_url)
-            time.sleep(5)  # Wait longer for page load
-        
-        # Wait for data to load with explicit wait
-        logger.info("⏳ Waiting for SMS data to load...")
-        try:
-            # Wait for table rows with actual content (not empty)
-            WebDriverWait(driver, 15).until(
-                lambda d: len(d.find_elements(By.CSS_SELECTOR, "table tbody tr td")) > 0
-            )
-            logger.info("✅ Table elements found")
-            time.sleep(2)  # Extra wait for content to populate
-        except Exception as e:
-            logger.warning(f"⚠️ Timeout waiting for table content: {e}")
-            time.sleep(5)  # Fallback wait
-        
-        # Try to get data via AJAX
-        logger.info("🔍 Fetching SMS data...")
-        
-        script = """
-        var callback = arguments[arguments.length - 1];
-        
-        // Make AJAX request
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', '/portal/live/my_sms', true);
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        xhr.setRequestHeader('Accept', 'application/json');
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                try {
-                    var data = JSON.parse(xhr.responseText);
-                    callback({success: true, data: data});
-                } catch(e) {
-                    // If not JSON, try parsing HTML
-                    callback({success: false, html: xhr.responseText.substring(0, 500)});
-                }
-            } else {
-                callback({success: false, error: xhr.status});
-            }
-        };
-        xhr.onerror = function() {
-            callback({success: false, error: 'Network error'});
-        };
-        xhr.send();
-        """
-        
-        driver.set_script_timeout(15)
-        result = driver.execute_async_script(script)
-        
-        if result and result.get('success'):
-            logger.info("✅ Got SMS data from API")
-            return result.get('data')
-        
-        # Fallback: Parse HTML table
-        logger.info("📋 Parsing HTML table...")
-        sms_list = []
-        
-        # Take screenshot for debugging
-        try:
-            driver.save_screenshot("sms_page_debug.png")
-            logger.info("📸 Screenshot saved: sms_page_debug.png")
-        except:
-            pass
-        
-        # Check page source for debugging
-        try:
-            page_source = driver.page_source
-            if "No SMS" in page_source or "no sms" in page_source.lower():
-                logger.info("ℹ️ Page says 'No SMS'")
-            if "my_sms" in page_source.lower():
-                logger.info("✅ 'my_sms' found in page source")
-            
-            # Save page HTML for inspection
-            with open("page_source.html", "w", encoding="utf-8") as f:
-                f.write(page_source)
-            logger.info("📄 Page source saved: page_source.html")
-        except:
-            pass
-        
-        # Try to find table rows
-        try:
-            rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
-            logger.info(f"Found {len(rows)} table rows")
-            
-            for idx, row in enumerate(rows):
-                try:
-                    cells = row.find_elements(By.TAG_NAME, "td")
-                    row_text = row.text.strip()
-                    
-                    # Debug: Print each cell content
-                    cell_contents = [f"Cell{i}: '{cell.text[:20]}'" for i, cell in enumerate(cells)]
-                    logger.info(f"Row {idx}: {len(cells)} cells, text: '{row_text[:50]}'")
-                    logger.info(f"  Cells: {', '.join(cell_contents)}")
-                    
-                    # Skip if not enough cells
-                    if len(cells) < 2:
-                        logger.info(f"  Skipped: Not enough cells")
-                        continue
-                    
-                    # Skip headers
-                    if "SID" in row_text or "Limit" in row_text or "Message" in row_text:
-                        logger.info(f"  Skipped: Header row")
-                        continue
-                    
-                    # Skip empty rows
-                    if not row_text or len(row_text) < 5:
-                        logger.info(f"  Skipped: Empty row")
-                        continue
-                    
-                    # Extract data from cells
-                    phone = cells[0].text.strip() if len(cells) > 0 else "Unknown"
-                    sid = cells[1].text.strip() if len(cells) > 1 else str(abs(hash(row_text)))
-                    
-                    # Message is usually in last cell or cell 4
-                    if len(cells) > 4:
-                        message = cells[4].text.strip()
+        upd = requests.get(f"https://api.telegram.org/bot{BOT}/getUpdates?offset={LAST_ID+1}", timeout=15).json()
+        for u in upd.get("result",[]):
+            LAST_ID = u["update_id"]
+            msg = u.get("message",{})
+            text = msg.get("text","")
+            user_id = msg.get("from",{}).get("id")
+            chat_id = msg.get("chat",{}).get("id")
+            if user_id==ADMIN_ID:
+                if text=="/status":
+                    requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage",
+                                  data={'chat_id':chat_id,'text':get_status_message(stats),'parse_mode':'HTML'})
+                elif text=="/refresh":
+                    send_tg("⏳ Executing page refresh...", target_chat_id=chat_id)
+                    if GLOBAL_ASYNC_LOOP:
+                        asyncio.run_coroutine_threadsafe(monitor.refresh_and_screenshot(admin_chat_id=chat_id), GLOBAL_ASYNC_LOOP)
                     else:
-                        message = cells[-1].text.strip()
-                    
-                    # Skip if message is empty
-                    if not message or len(message) < 2:
-                        logger.info(f"  Skipped: No message content")
-                        continue
-                    
-                    # Extract OTP
-                    otp_matches = re.findall(r'\b\d{4,8}\b', message)
-                    otp = otp_matches[0] if otp_matches else "N/A"
-                    
-                    sms_data = {
-                        "id": sid if sid else str(abs(hash(row_text))),
-                        "to": phone,
-                        "message": message,
-                        "otp": otp
-                    }
-                    
-                    sms_list.append(sms_data)
-                    logger.info(f"  ✅ Extracted SMS: {phone} - {message[:30]}...")
-                    
-                except Exception as e:
-                    logger.error(f"  Error processing row {idx}: {e}")
-                    continue
-                
-        except Exception as e:
-            logger.error(f"Error parsing table: {e}")
-        
-        if sms_list:
-            logger.info(f"✅ Found {len(sms_list)} SMS")
-            return {"sms_list": sms_list}
-        else:
-            logger.info("ℹ️ No SMS found")
-            return {"sms_list": []}
-        
+                        send_tg("❌ Loop error.", target_chat_id=chat_id)
     except Exception as e:
-        logger.error(f"❌ Error getting SMS: {e}")
-        return None
+        print(f"❌ check_cmd error: {e}")
 
-# ---------- TELEGRAM ----------
-def format_sms_message(phone, sid, otp, message, timestamp):
-    """Format SMS for Telegram"""
-    if len(message) > 200:
-        message = message[:200] + "..."
-    
-    return (
-        f"<b>🔔 NEW SMS RECEIVED</b>\n"
-        f"<pre>╭━━━━━━━━━━━━━━━━━━━━━━━╮</pre>\n"
-        f"<b>📱 Phone Number:</b>\n"
-        f"<code>{phone}</code>\n\n"
-        f"<b>🆔 Service ID:</b>\n"
-        f"<code>{sid}</code>\n\n"
-        f"<b>💬 Message Content:</b>\n"
-        f"<pre>{html.escape(message)}</pre>\n\n"
-        f"<b>🔑 OTP Code:</b>\n"
-        f"<code>{otp}</code>\n\n"
-        f"<b>⏰ Received At:</b>\n"
-        f"<code>{timestamp}</code>\n"
-        f"<pre>╰━━━━━━━━━━━━━━━━━━━━━━━╯</pre>\n"
-        f"<i>⚡ Powered by: <b>Samuels Ramon</b></i>\n"
-        f"<i>🏢 <b>EUW IT GROUP</b></i>"
-    )
-
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "✅ <b>IVA SMS Bot Running!</b>\n\n"
-        "🤖 Auto-login enabled\n"
-        "📱 Monitoring SMS\n"
-        "📨 Forwarding to Telegram",
-        parse_mode="HTML"
-    )
-
-async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+async def monitor_sms_loop():
+    global total_sent
+    try: await monitor.initialize()
+    except Exception as e:
+        send_tg(f"🚨 FATAL ERROR: Gagal terhubung ke Chrome/Pyppeteer.\n{e}")
+        BOT_STATUS["status"]="FATAL ERROR"
         return
-    
-    status = "🟢 Running" if driver else "🔴 Stopped"
-    await update.message.reply_text(
-        f"<b>🤖 IVASMS Auto Bot Status</b>\n\n"
-        f"<b>Status:</b> {status}\n"
-        f"<b>Version:</b> {__version__}\n"
-        f"<b>Email:</b> {EMAIL}\n"
-        f"<b>Mode:</b> Automatic\n\n"
-        f"<i>👨‍💻 {__author__}</i>\n"
-        f"<i>🏢 {__company__}</i>",
-        parse_mode="HTML"
-    )
 
-# ---------- MONITOR ----------
-async def monitor_sms(app):
-    global driver
-    
-    logger.info("🚀 Starting IVA SMS Monitor...")
-    
-    # Initialize browser
-    if not init_browser():
-        logger.error("❌ Failed to start browser")
-        return
-    
-    # Auto-login
-    if not auto_login():
-        logger.error("❌ Failed to login")
-        try:
-            await app.bot.send_message(
-                chat_id=ADMIN_ID,
-                text="❌ <b>Login Failed!</b>\n\nCheck bot_auto.log for details",
-                parse_mode="HTML"
-            )
-        except:
-            pass
-        return
-    
-    # Notify start
-    try:
-        await app.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=(
-                "✅ <b>Bot Started Successfully!</b>\n\n"
-                "🌐 Browser: Running\n"
-                "🔐 Login: Success\n"
-                "📱 Monitoring: Active\n\n"
-                f"Email: {EMAIL}"
-            ),
-            parse_mode="HTML"
-        )
-    except:
-        pass
-    
-    seen_sms = set()
-    error_count = 0
-    
-    logger.info("👀 Monitoring for SMS...")
-    
+    BOT_STATUS["monitoring_active"]=True
     while True:
         try:
-            # Get SMS data
-            data = get_sms_data()
-            
-            if not data:
-                error_count += 1
-                logger.warning(f"⚠️ Failed to get data (errors: {error_count})")
-                
-                # Re-login after 5 errors
-                if error_count >= 5:
-                    logger.info("🔄 Too many errors, re-logging in...")
-                    if auto_login():
-                        error_count = 0
-                        logger.info("✅ Re-login successful")
-                    else:
-                        logger.error("❌ Re-login failed")
-                
-                await asyncio.sleep(15)
-                continue
-            
-            error_count = 0
-            sms_list = data.get("sms_list", [])
-            
-            # Process each SMS
-            for sms in sms_list:
-                sms_id = sms.get("id")
-                
-                # Skip if already seen
-                if sms_id in seen_sms:
-                    continue
-                
-                seen_sms.add(sms_id)
-                
-                # Keep set size manageable
-                if len(seen_sms) > 1000:
-                    seen_sms = set(list(seen_sms)[-500:])
-                
-                # Extract data
-                phone = sms.get("to", "Unknown")
-                message = sms.get("message", "")
-                otp = sms.get("otp", "N/A")
-                timestamp = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
-                
-                # Format message
-                msg = format_sms_message(phone, sms_id, otp, message, timestamp)
-                
-                # Send to Telegram
-                try:
-                    await app.bot.send_message(
-                        chat_id=CHAT_ID,
-                        text=msg,
-                        parse_mode="HTML"
-                    )
-                    logger.info(f"✅ Forwarded SMS {sms_id} to Telegram")
-                except Exception as e:
-                    logger.error(f"❌ Failed to send to Telegram: {e}")
-            
-            # Wait before next check
-            await asyncio.sleep(5)
-            
+            if BOT_STATUS["monitoring_active"]:
+                msgs = await monitor.fetch_sms()
+                new = otp_filter.filter(msgs)
+                if new:
+                    for i, otp_data in enumerate(new,1):
+                        # Simpan ke smc.json sebelum kirim ke Telegram
+                        save_to_smc(otp_data)
+
+                        message_text = f"[{i}/{len(new)}] "+format_otp_message(otp_data)
+                        # send_tg(message_text, with_inline_keyboard=True)
+                        # Menggunakan CHAT_ID yang sudah didefinisikan secara global
+                        send_tg(message_text, with_inline_keyboard=True, target_chat_id=CHAT)
+                        total_sent+=1
+                        await asyncio.sleep(0.5)
+            stats = update_global_status()
+            check_cmd(stats)
         except Exception as e:
-            logger.error(f"❌ Monitor error: {e}")
-            error_count += 1
-            await asyncio.sleep(10)
+            print(f"❌ monitor loop error: {e}")
+        await asyncio.sleep(5)
 
-# ---------- MAIN ----------
-async def post_init(app):
-    asyncio.create_task(monitor_sms(app))
-
-def main():
-    global driver
-    
-    try:
-        print("\n" + "="*60)
-        print("╔════════════════════════════════════════════════════════╗")
-        print("║                                                        ║")
-        print("║          🔥 IVASMS AUTO FORWARDING BOT 🔥             ║")
-        print("║                                                        ║")
-        print("║         ⚡ Powered by Selenium & EUW IT GROUP ⚡       ║")
-        print("║                                                        ║")
-        print("╠════════════════════════════════════════════════════════╣")
-        print("║                                                        ║")
-        print("║   👨‍💻 Developer: Samuels Ramon                          ║")
-        print("║   🏢 Company: EUW IT GROUP                             ║")
-        print("║   📧 Email: saemuelsrom@gmail.com                      ║")
-        print("║   🌐 Auto-Login: ✅ Enabled                            ║")
-        print("║   📱 SMS Monitoring: ✅ Active                         ║")
-        print("║   📨 Telegram Forward: ✅ Active                       ║")
-        print("║                                                        ║")
-        print("╚════════════════════════════════════════════════════════╝")
-        print("="*60 + "\n")
-        
-        logger.info("🚀 Welcome to IVASMS AUTO BOT - STARTING...")
-        logger.info("👨‍💻 Developer: Samuels Ramon (EUW IT GROUP)")
-        
-        app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
-        app.add_handler(CommandHandler("start", start_cmd))
-        app.add_handler(CommandHandler("status", status_cmd))
-        
-        logger.info("🤖 Bot running...")
-        app.run_polling()
-        
-    except KeyboardInterrupt:
-        logger.info("⏹️ Bot stopped by user")
-    except Exception as e:
-        logger.error(f"❌ Fatal error: {e}")
-    finally:
-        if driver:
-            logger.info("🔒 Closing browser...")
+# ================= Periodic Save Cache =================
+async def periodic_cache_save(interval_seconds=60):
+    global otp_filter
+    while True:
+        await asyncio.sleep(interval_seconds)
+        if otp_filter.unsaved_changes:
             try:
-                driver.quit()
-            except:
-                pass
+                print(f"💾 Saving cache ({len(otp_filter.cache)} items)...")
+                otp_filter._save()
+                otp_filter.unsaved_changes=False
+            except Exception as e:
+                print(f"❌ Failed periodic save: {e}")
 
+# ================= Flask =================
+app = Flask(__name__, template_folder='templates')
+
+@app.route('/', methods=['GET'])
+def index():
+    return render_template('dashboard.html')
+
+@app.route('/api/status', methods=['GET'])
+def get_status_json():
+    update_global_status()
+    return jsonify(BOT_STATUS)
+
+@app.route('/manual-check', methods=['GET'])
+def manual_check():
+    if ADMIN_ID is None:
+        return jsonify({"message":"Admin ID not configured"}), 400
+    if GLOBAL_ASYNC_LOOP is None:
+        return jsonify({"message":"Async loop not initialized"}), 500
+    try:
+        asyncio.run_coroutine_threadsafe(monitor.refresh_and_screenshot(admin_chat_id=ADMIN_ID), GLOBAL_ASYNC_LOOP)
+        return jsonify({"message":"Halaman IVASMS Refresh & Screenshot sedang dikirim ke Admin Telegram."})
+    except Exception as e:
+        return jsonify({"message":f"Error: {e}"}), 500
+
+@app.route('/telegram-status', methods=['GET'])
+def send_telegram_status_route():
+    if ADMIN_ID is None:
+        return jsonify({"message":"Admin ID not configured"}), 400
+    stats_msg = get_status_message(update_global_status())
+    send_tg(stats_msg, target_chat_id=ADMIN_ID)
+    return jsonify({"message":"Status sent to Telegram Admin."})
+
+@app.route('/clear-cache', methods=['GET'])
+def clear_otp_cache_route():
+    global otp_filter
+    otp_filter.cache = {}
+    otp_filter._save()
+    otp_filter.unsaved_changes = False
+    update_global_status()
+    return jsonify({"message":"OTP cache cleared."})
+
+# ================= Main Async Loop =================
+def start_async_loop():
+    global GLOBAL_ASYNC_LOOP
+    loop = asyncio.new_event_loop()
+    GLOBAL_ASYNC_LOOP = loop
+    asyncio.set_event_loop(loop)
+    tasks = [
+        monitor_sms_loop(),
+        periodic_cache_save(60)
+    ]
+    loop.run_until_complete(asyncio.gather(*tasks))
+
+# ================= Run Flask + Bot =================
 if __name__ == "__main__":
-    main()
+    from threading import Thread
+    # Start bot async loop in background thread
+    t = Thread(target=start_async_loop, daemon=True)
+    t.start()
+
+    # Start Flask web server
+    # Menggunakan FLASK_PORT yang telah didefinisikan
+    app.run(host='0.0.0.0', port=FLASK_PORT, debug=False)
 
