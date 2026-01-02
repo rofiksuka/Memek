@@ -1,4 +1,22 @@
-asyncio==3.4.3
-httpx==0.27.0
-beautifulsoup4==4.12.3
-python-telegram-bot==21.0
+# IVASMS Auto Forwarding Bot - Requirements
+# Developer: Samuels Ramon (EUW IT GROUP)
+# Python 3.11+
+
+# Selenium for browser automation
+selenium>=4.0.0
+
+# Undetected ChromeDriver for Cloudflare bypass
+undetected-chromedriver>=3.5.0
+
+# WebDriver Manager
+webdriver-manager>=4.0.0
+
+# Telegram Bot API
+python-telegram-bot>=20.0
+
+# HTTP requests
+httpx>=0.24.0
+
+
+# Async support
+asyncio
