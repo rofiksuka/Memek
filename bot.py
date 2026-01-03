@@ -15,7 +15,7 @@ from flask import Flask, jsonify, render_template
 
 # ================= Konfigurasi Variabel (Pengganti .env) =================
 # Anda dapat mengubah nilai di sini
-RDP_PUBLIC_IP = "178.128.96.175" # IP yang digunakan untuk login ke RDP (tanpa port)
+RDP_PUBLIC_IP = "178.128.96.175:22" # IP yang digunakan untuk login ke RDP (tanpa port)
 TELEGRAM_BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI"
 TELEGRAM_CHAT_ID = "-1003594038682"
 TELEGRAM_ADMIN_ID = "8446734557"
@@ -250,15 +250,31 @@ class SMSMonitor:
         self.page = None
 
     async def initialize(self):
-        # Menggunakan 127.0.0.1:9222 (port default untuk pyppeteer connect)
-        self.browser = await connect(browserURL="http://127.0.0.1:9222")
-        pages = await self.browser.pages()
-        page = next((p for p in pages if self.url in p.url), None)
-        if not page:
-            page = await self.browser.newPage()
-            await page.goto(self.url, {'waitUntil':'networkidle0'})
-        self.page = page
-        print("✅ Browser page connected.")
+        # [MODIFIED] Menambahkan Loop Retry & Debug Print
+        print("🔄 [DEBUG] Memulai proses koneksi ke Browser (Chrome Port 9222)...")
+        while True:
+            try:
+                # [MODIFIED] FIX: defaultViewport=None untuk mengatasi error Protocol error
+                self.browser = await connect(browserURL="http://127.0.0.1:9222", defaultViewport=None)
+                
+                print("✅ [DEBUG] Terhubung ke Browser! Mencari tab IVASMS...")
+                pages = await self.browser.pages()
+                page = next((p for p in pages if self.url in p.url), None)
+                if not page:
+                    print("ℹ️ [DEBUG] Tab IVASMS tidak ditemukan, membuka tab baru...")
+                    page = await self.browser.newPage()
+                    await page.goto(self.url, {'waitUntil':'networkidle0'})
+                else:
+                    print("✅ [DEBUG] Tab IVASMS ditemukan.")
+                
+                self.page = page
+                print("✅ [DEBUG] Browser & Page siap monitoring!")
+                return # Keluar dari loop jika berhasil
+                
+            except Exception as e:
+                print(f"⚠️ [DEBUG] Gagal connect ke Chrome: {e}")
+                print("⏳ [DEBUG] Retrying in 5 seconds... (Pastikan Chrome Debug sudah jalan)")
+                await asyncio.sleep(5)
 
     async def fetch_sms(self):
         if not self.page: await self.initialize()
@@ -368,11 +384,8 @@ def check_cmd(stats):
 
 async def monitor_sms_loop():
     global total_sent
-    try: await monitor.initialize()
-    except Exception as e:
-        send_tg(f"🚨 FATAL ERROR: Gagal terhubung ke Chrome/Pyppeteer.\n{e}")
-        BOT_STATUS["status"]="FATAL ERROR"
-        return
+    # [MODIFIED] initialize() sekarang sudah aman karena ada loop di dalamnya
+    await monitor.initialize()
 
     BOT_STATUS["monitoring_active"]=True
     while True:
