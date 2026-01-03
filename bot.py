@@ -7,32 +7,28 @@ import json
 import os
 import requests
 import time
-# from dotenv import load_dotenv # Hapus import ini
 import socket
 from threading import Thread
 
 from flask import Flask, jsonify, render_template
 
-# ================= Konfigurasi Variabel (Pengganti .env) =================
-# Anda dapat mengubah nilai di sini
-RDP_PUBLIC_IP = "178.128.96.175:22" # IP yang digunakan untuk login ke RDP (tanpa port)
+# ================= Konfigurasi Variabel =================
+RDP_PUBLIC_IP = "178.128.96.175:22" 
 TELEGRAM_BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI"
 TELEGRAM_CHAT_ID = "-1003594038682"
 TELEGRAM_ADMIN_ID = "8446734557"
-FLASK_PORT = 5000 # Port untuk Flask
+FLASK_PORT = 5000 
 
 # ================= Konstanta Telegram =================
 TELEGRAM_BOT_LINK = "http://t.me/tesyuan_bot"
 TELEGRAM_ADMIN_LINK = "https://t.me/punyakah"
 
-# Ambil nilai dari variabel konfigurasi di atas
 BOT = TELEGRAM_BOT_TOKEN
 CHAT = TELEGRAM_CHAT_ID
 try:
-    # Menggunakan int(os.getenv(...)) diganti dengan konversi langsung
     ADMIN_ID = int(TELEGRAM_ADMIN_ID)
 except (ValueError, TypeError):
-    print("⚠️ WARNING: TELEGRAM_ADMIN_ID tidak valid. Admin command dinonaktifkan.")
+    print("[WARNING] TELEGRAM_ADMIN_ID tidak valid. Admin command dinonaktifkan.")
     ADMIN_ID = None
 
 LAST_ID = 0
@@ -78,7 +74,6 @@ def mask_phone_number(phone, visible_start=4, visible_end=4):
     return f"{prefix}{digits[:visible_start]}{masked}{digits[-visible_end:]}"
 
 def clean_range_text(text):
-    """Hanya ambil huruf, buang angka, dan ubah ke huruf besar."""
     if not text: return "N/A"
     cleaned = re.sub(r'[^a-zA-Z\s]+', '', text).strip()
     return cleaned.upper() if cleaned else "UNKNOWN RANGE"
@@ -162,7 +157,7 @@ class OTPFilter:
             with open(self.file,'w') as f:
                 json.dump(self.cache, f, indent=2)
         except Exception as e:
-            print(f"❌ Failed saving cache: {e}")
+            print(f"[ERROR] Failed saving cache: {e}")
 
     def key(self, d):
         return f"{d['otp']}_{d['phone']}_{clean_service_name(d['service'])}_{clean_range_text(d.get('range','N/A'))}"
@@ -207,37 +202,37 @@ def save_to_smc(otp_data):
         with open(SMC_FILE,'w') as f:
             json.dump(data, f, indent=2)
     except Exception as e:
-        print(f"❌ Failed to save to smc.json: {e}")
+        print(f"[ERROR] Failed to save to smc.json: {e}")
 
 # ================= Telegram =================
 def send_tg(text, with_inline_keyboard=False, target_chat_id=None):
     chat_id_to_use = target_chat_id if target_chat_id else CHAT
     if not BOT or not chat_id_to_use:
-        print("❌ Telegram config missing.")
+        print("[ERROR] Telegram config missing.")
         return
     payload = {'chat_id': chat_id_to_use,'text': text,'parse_mode':'HTML'}
     if with_inline_keyboard: payload['reply_markup'] = create_inline_keyboard()
     try:
         r = requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage", data=payload, timeout=15)
         if not r.ok:
-            print(f"⚠️ Telegram API error: {r.text}")
+            print(f"[WARNING] Telegram API error: {r.text}")
     except Exception as e:
-        print(f"❌ send_tg error: {e}")
+        print(f"[ERROR] send_tg error: {e}")
 
 def send_photo_tg(photo_path, caption="", target_chat_id=None):
     chat_id_to_use = target_chat_id if target_chat_id else CHAT
     if not BOT or not chat_id_to_use:
-        print("❌ Telegram config missing.")
+        print("[ERROR] Telegram config missing.")
         return False
     try:
         with open(photo_path,'rb') as photo_file:
             files = {'photo': photo_file}
             data = {'chat_id': chat_id_to_use,'caption':caption,'parse_mode':'HTML'}
             r = requests.post(f"https://api.telegram.org/bot{BOT}/sendPhoto", files=files, data=data, timeout=20)
-        if not r.ok: print(f"⚠️ Telegram Photo API error: {r.text}"); return False
+        if not r.ok: print(f"[WARNING] Telegram Photo API error: {r.text}"); return False
         return True
     except Exception as e:
-        print(f"❌ send_photo_tg error: {e}")
+        print(f"[ERROR] send_photo_tg error: {e}")
         return False
 
 # ================= SMS Monitor =================
@@ -250,30 +245,30 @@ class SMSMonitor:
         self.page = None
 
     async def initialize(self):
-        # [MODIFIED] Menambahkan Loop Retry & Debug Print
-        print("🔄 [DEBUG] Memulai proses koneksi ke Browser (Chrome Port 9222)...")
+        # [MODIFIED] MENGHAPUS EMOJI DARI PRINT AGAR WINDOWS TIDAK ERROR
+        print("[DEBUG] Memulai proses koneksi ke Browser (Chrome Port 9222)...")
         while True:
             try:
-                # [MODIFIED] FIX: defaultViewport=None untuk mengatasi error Protocol error
+                # [MODIFIED] defaultViewport=None untuk mengatasi error Protocol error
                 self.browser = await connect(browserURL="http://127.0.0.1:9222", defaultViewport=None)
                 
-                print("✅ [DEBUG] Terhubung ke Browser! Mencari tab IVASMS...")
+                print("[DEBUG] Terhubung ke Browser! Mencari tab IVASMS...")
                 pages = await self.browser.pages()
                 page = next((p for p in pages if self.url in p.url), None)
                 if not page:
-                    print("ℹ️ [DEBUG] Tab IVASMS tidak ditemukan, membuka tab baru...")
+                    print("[DEBUG] Tab IVASMS tidak ditemukan, membuka tab baru...")
                     page = await self.browser.newPage()
                     await page.goto(self.url, {'waitUntil':'networkidle0'})
                 else:
-                    print("✅ [DEBUG] Tab IVASMS ditemukan.")
+                    print("[DEBUG] Tab IVASMS ditemukan.")
                 
                 self.page = page
-                print("✅ [DEBUG] Browser & Page siap monitoring!")
+                print("[DEBUG] Browser & Page siap monitoring!")
                 return # Keluar dari loop jika berhasil
                 
             except Exception as e:
-                print(f"⚠️ [DEBUG] Gagal connect ke Chrome: {e}")
-                print("⏳ [DEBUG] Retrying in 5 seconds... (Pastikan Chrome Debug sudah jalan)")
+                print(f"[DEBUG] Gagal connect ke Chrome: {e}")
+                print("[DEBUG] Retrying in 5 seconds... (Pastikan Chrome Debug sudah jalan)")
                 await asyncio.sleep(5)
 
     async def fetch_sms(self):
@@ -325,7 +320,7 @@ class SMSMonitor:
         if not self.page:
             try: await self.initialize()
             except Exception as e:
-                send_tg(f"⚠️ Error init browser: {e}", target_chat_id=admin_chat_id)
+                send_tg(f"Error init browser: {e}", target_chat_id=admin_chat_id)
                 return False
         screenshot_filename = f"screenshot_{int(time.time())}.png"
         try:
@@ -335,7 +330,7 @@ class SMSMonitor:
             send_photo_tg(screenshot_filename, caption, target_chat_id=admin_chat_id)
             return True
         except Exception as e:
-            send_tg(f"⚠️ Error refresh/screenshot: {e}", target_chat_id=admin_chat_id)
+            send_tg(f"Error refresh/screenshot: {e}", target_chat_id=admin_chat_id)
             return False
         finally:
             if os.path.exists(screenshot_filename): os.remove(screenshot_filename)
@@ -374,17 +369,16 @@ def check_cmd(stats):
                     requests.post(f"https://api.telegram.org/bot{BOT}/sendMessage",
                                   data={'chat_id':chat_id,'text':get_status_message(stats),'parse_mode':'HTML'})
                 elif text=="/refresh":
-                    send_tg("⏳ Executing page refresh...", target_chat_id=chat_id)
+                    send_tg("Executing page refresh...", target_chat_id=chat_id)
                     if GLOBAL_ASYNC_LOOP:
                         asyncio.run_coroutine_threadsafe(monitor.refresh_and_screenshot(admin_chat_id=chat_id), GLOBAL_ASYNC_LOOP)
                     else:
-                        send_tg("❌ Loop error.", target_chat_id=chat_id)
+                        send_tg("Loop error.", target_chat_id=chat_id)
     except Exception as e:
-        print(f"❌ check_cmd error: {e}")
+        print(f"[ERROR] check_cmd error: {e}")
 
 async def monitor_sms_loop():
     global total_sent
-    # [MODIFIED] initialize() sekarang sudah aman karena ada loop di dalamnya
     await monitor.initialize()
 
     BOT_STATUS["monitoring_active"]=True
@@ -395,19 +389,15 @@ async def monitor_sms_loop():
                 new = otp_filter.filter(msgs)
                 if new:
                     for i, otp_data in enumerate(new,1):
-                        # Simpan ke smc.json sebelum kirim ke Telegram
                         save_to_smc(otp_data)
-
                         message_text = f"[{i}/{len(new)}] "+format_otp_message(otp_data)
-                        # send_tg(message_text, with_inline_keyboard=True)
-                        # Menggunakan CHAT_ID yang sudah didefinisikan secara global
                         send_tg(message_text, with_inline_keyboard=True, target_chat_id=CHAT)
                         total_sent+=1
                         await asyncio.sleep(0.5)
             stats = update_global_status()
             check_cmd(stats)
         except Exception as e:
-            print(f"❌ monitor loop error: {e}")
+            print(f"[ERROR] monitor loop error: {e}")
         await asyncio.sleep(5)
 
 # ================= Periodic Save Cache =================
@@ -417,11 +407,11 @@ async def periodic_cache_save(interval_seconds=60):
         await asyncio.sleep(interval_seconds)
         if otp_filter.unsaved_changes:
             try:
-                print(f"💾 Saving cache ({len(otp_filter.cache)} items)...")
+                print(f"[INFO] Saving cache ({len(otp_filter.cache)} items)...")
                 otp_filter._save()
                 otp_filter.unsaved_changes=False
             except Exception as e:
-                print(f"❌ Failed periodic save: {e}")
+                print(f"[ERROR] Failed periodic save: {e}")
 
 # ================= Flask =================
 app = Flask(__name__, template_folder='templates')
@@ -484,6 +474,5 @@ if __name__ == "__main__":
     t.start()
 
     # Start Flask web server
-    # Menggunakan FLASK_PORT yang telah didefinisikan
     app.run(host='0.0.0.0', port=FLASK_PORT, debug=False)
 
