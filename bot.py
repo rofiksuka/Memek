@@ -15,7 +15,7 @@ from flask import Flask, jsonify, render_template
 
 # ================= Konfigurasi Variabel (Pengganti .env) =================
 # Anda dapat mengubah nilai di sini
-RDP_PUBLIC_IP = "178.128.96.175:22" # IP yang digunakan untuk login ke RDP (tanpa port)
+RDP_PUBLIC_IP = "178.128.96.175" # IP yang digunakan untuk login ke RDP (tanpa port)
 TELEGRAM_BOT_TOKEN = "7331162045:AAHxVfQK0HJ-2kK91a2xL9a9YBFbMCGVEmI"
 TELEGRAM_CHAT_ID = "-1003594038682"
 TELEGRAM_ADMIN_ID = "8446734557"
